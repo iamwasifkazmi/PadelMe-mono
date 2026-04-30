@@ -1,0 +1,112 @@
+{
+  "name": "Notification",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string",
+      "description": "Recipient email"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "friend_request",
+        "friend_request_accepted",
+        "friend_request_declined",
+        "new_message",
+        "match_invite",
+        "match_invite_accepted",
+        "match_invite_declined",
+        "match_starting_soon",
+        "match_started",
+        "match_found",
+        "match_almost_full",
+        "match_cancelled",
+        "score_submitted",
+        "score_validation_required",
+        "score_confirmed",
+        "score_disputed",
+        "score_overridden",
+        "recurring_match_upcoming",
+        "recurring_match_changed",
+        "recurring_match_cancelled",
+        "tournament_invite",
+        "competition_invite",
+        "tournament_registration_confirmed",
+        "competition_registration_confirmed",
+        "tournament_started",
+        "league_fixture_available",
+        "competition_result_confirmed",
+        "verification_approved",
+        "verification_rejected",
+        "subscription_required",
+        "subscription_success",
+        "join",
+        "match_nearby",
+        "match_starting",
+        "rating_received"
+      ],
+      "description": "Notification type"
+    },
+    "title": {
+      "type": "string",
+      "description": "Short notification title"
+    },
+    "body": {
+      "type": "string",
+      "description": "Notification body / description"
+    },
+    "related_entity_type": {
+      "type": "string",
+      "enum": [
+        "match",
+        "competition",
+        "conversation",
+        "user",
+        "friend_request",
+        "score"
+      ],
+      "description": "The type of the related entity"
+    },
+    "related_entity_id": {
+      "type": "string",
+      "description": "ID of the related entity (match, competition, conversation, etc.)"
+    },
+    "related_user_email": {
+      "type": "string",
+      "description": "Email of the user who triggered the notification (sender)"
+    },
+    "related_user_name": {
+      "type": "string",
+      "description": "Display name of the user who triggered the notification"
+    },
+    "action_url": {
+      "type": "string",
+      "description": "In-app route to navigate to when tapped (e.g. /match/123)"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether notification has been opened/read"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "high",
+        "normal",
+        "low"
+      ],
+      "default": "normal",
+      "description": "Notification priority"
+    },
+    "match_id": {
+      "type": "string",
+      "description": "Legacy: related match ID (use related_entity_id for new notifications)"
+    }
+  },
+  "required": [
+    "user_email",
+    "type",
+    "title",
+    "body"
+  ]
+}

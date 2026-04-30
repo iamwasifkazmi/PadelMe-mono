@@ -1,0 +1,50 @@
+{
+  "name": "ConnectedDevice",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "provider_name": {
+      "type": "string",
+      "description": "e.g. PadelPlay, Wingfield, Garmin"
+    },
+    "provider_user_id": {
+      "type": "string",
+      "description": "User ID on the external platform"
+    },
+    "connection_status": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "disconnected",
+        "error",
+        "pending"
+      ],
+      "default": "pending"
+    },
+    "last_synced_at": {
+      "type": "string",
+      "description": "ISO datetime of last successful sync"
+    },
+    "token_expires_at": {
+      "type": "string",
+      "description": "ISO datetime when OAuth token expires"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Granted OAuth scopes"
+    }
+  },
+  "required": [
+    "user_email",
+    "provider_name",
+    "connection_status"
+  ]
+}

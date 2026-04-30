@@ -1,0 +1,308 @@
+{
+  "name": "Match",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Match title"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Match date"
+    },
+    "time": {
+      "type": "string",
+      "description": "Match start time"
+    },
+    "duration_minutes": {
+      "type": "number",
+      "description": "Duration in minutes"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Venue/court name"
+    },
+    "location_address": {
+      "type": "string",
+      "description": "Full address of the venue"
+    },
+    "location_lat": {
+      "type": "number",
+      "description": "Latitude"
+    },
+    "location_lng": {
+      "type": "number",
+      "description": "Longitude"
+    },
+    "skill_level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced",
+        "any"
+      ],
+      "description": "Required skill level"
+    },
+    "max_players": {
+      "type": "number",
+      "description": "Total players needed"
+    },
+    "players": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Array of player emails who joined"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "full",
+        "in_progress",
+        "awaiting_score",
+        "pending_validation",
+        "completed",
+        "cancelled",
+        "abandoned",
+        "disputed"
+      ],
+      "description": "Match status"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "invite_only"
+      ],
+      "default": "public",
+      "description": "Who can see and join this match"
+    },
+    "invited_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Emails of users explicitly invited to this match"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Match tags"
+    },
+    "is_instant": {
+      "type": "boolean",
+      "description": "Whether this is a Play Now match"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    },
+    "match_type": {
+      "type": "string",
+      "enum": [
+        "singles",
+        "doubles",
+        "mixed_doubles"
+      ],
+      "default": "singles",
+      "description": "Match format"
+    },
+    "team_a": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Team A player emails"
+    },
+    "team_b": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Team B player emails"
+    },
+    "team_a_captain_email": {
+      "type": "string",
+      "description": "Designated representative/captain for Team A who validates scores"
+    },
+    "team_b_captain_email": {
+      "type": "string",
+      "description": "Designated representative/captain for Team B who validates scores"
+    },
+    "teams_locked": {
+      "type": "boolean",
+      "description": "Organiser has locked teams \u2014 no more changes"
+    },
+    "auto_balance": {
+      "type": "boolean",
+      "description": "Auto-assign players to balance skill levels"
+    },
+    "scoring_mode": {
+      "type": "string",
+      "enum": [
+        "sets",
+        "simple"
+      ],
+      "default": "simple",
+      "description": "How scores are entered"
+    },
+    "num_sets": {
+      "type": "number",
+      "enum": [
+        1,
+        3,
+        5
+      ],
+      "default": 1,
+      "description": "Number of sets (1, best of 3, best of 5)"
+    },
+    "games_per_set": {
+      "type": "number",
+      "default": 6,
+      "description": "Games needed to win a set"
+    },
+    "tiebreak_rule": {
+      "type": "string",
+      "enum": [
+        "tiebreak_at_6",
+        "match_tiebreak",
+        "none"
+      ],
+      "default": "tiebreak_at_6"
+    },
+    "submitted_score_a": {
+      "type": "string",
+      "description": "Submitted score string for Team A (e.g. 6,3,10)"
+    },
+    "submitted_score_b": {
+      "type": "string",
+      "description": "Submitted score string for Team B (e.g. 4,6,8)"
+    },
+    "submitted_by": {
+      "type": "string",
+      "description": "Email of player who submitted the score"
+    },
+    "confirmed_by": {
+      "type": "string",
+      "description": "Email of player who confirmed the score"
+    },
+    "rejection_reason": {
+      "type": "string"
+    },
+    "evidence_url": {
+      "type": "string"
+    },
+    "score_team_a": {
+      "type": "string",
+      "description": "Final confirmed score for Team A"
+    },
+    "score_team_b": {
+      "type": "string",
+      "description": "Final confirmed score for Team B"
+    },
+    "winner_team": {
+      "type": "string",
+      "enum": [
+        "team_a",
+        "team_b"
+      ],
+      "description": "Winning team"
+    },
+    "winner_email": {
+      "type": "string",
+      "description": "Winner email (singles)"
+    },
+    "is_recurring": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this match is part of a recurring series"
+    },
+    "recurring_match_id": {
+      "type": "string",
+      "description": "ID of the parent recurring series"
+    },
+    "parent_match_id": {
+      "type": "string",
+      "description": "For non-recurring: ID of the series it belongs to (if it's an occurrence)"
+    },
+    "occurrence_number": {
+      "type": "number",
+      "description": "Which occurrence in the series (1-indexed)"
+    },
+    "occurrence_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Actual date of this specific occurrence"
+    },
+    "recurrence_pattern": {
+      "type": "object",
+      "description": "Recurrence rule (frequency, days, end_rule, end_date, end_count)",
+      "properties": {
+        "frequency": {
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly",
+            "biweekly",
+            "monthly"
+          ]
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "For weekly/biweekly: days of week (Monday, Tuesday, etc.)"
+        },
+        "end_rule": {
+          "type": "string",
+          "enum": [
+            "never",
+            "on_date",
+            "after_count"
+          ]
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Series ends on this date (if end_rule is on_date)"
+        },
+        "end_count": {
+          "type": "number",
+          "description": "Series ends after this many occurrences (if end_rule is after_count)"
+        }
+      }
+    },
+    "player_group_mode": {
+      "type": "string",
+      "enum": [
+        "fixed",
+        "open",
+        "hybrid"
+      ],
+      "default": "open",
+      "description": "For recurring: fixed players, open slots, or hybrid"
+    },
+    "fixed_players": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "For fixed/hybrid mode: player emails in the recurring series"
+    }
+  },
+  "required": [
+    "title",
+    "date",
+    "time",
+    "location_name",
+    "skill_level",
+    "max_players",
+    "status"
+  ]
+}

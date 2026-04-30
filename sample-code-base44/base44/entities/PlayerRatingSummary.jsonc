@@ -1,0 +1,44 @@
+{
+  "name": "PlayerRatingSummary",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "average_rating": {
+      "type": "number",
+      "default": 0,
+      "description": "Average stars 1-5"
+    },
+    "total_ratings": {
+      "type": "number",
+      "default": 0
+    },
+    "tag_reliable_count": {
+      "type": "number",
+      "default": 0
+    },
+    "tag_good_attitude_count": {
+      "type": "number",
+      "default": 0
+    },
+    "tag_skill_accurate_count": {
+      "type": "number",
+      "default": 0
+    },
+    "tag_would_play_again_count": {
+      "type": "number",
+      "default": 0
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "user_email"
+  ]
+}

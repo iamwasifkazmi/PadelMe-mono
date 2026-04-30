@@ -1,0 +1,36 @@
+{
+  "name": "CompetitionEntry",
+  "type": "object",
+  "properties": {
+    "competition_id": {
+      "type": "string"
+    },
+    "player_email": {
+      "type": "string"
+    },
+    "player_name": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "eliminated",
+        "active"
+      ]
+    },
+    "fee_paid": {
+      "type": "boolean"
+    },
+    "amount_paid": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "competition_id",
+    "player_email",
+    "player_name",
+    "status"
+  ]
+}

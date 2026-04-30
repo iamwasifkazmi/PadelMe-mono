@@ -1,0 +1,78 @@
+{
+  "name": "AvailabilityPost",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "user_avatar": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "cancelled",
+        "playing"
+      ],
+      "default": "active"
+    },
+    "time_window": {
+      "type": "string",
+      "enum": [
+        "now",
+        "1h",
+        "2h"
+      ],
+      "default": "now"
+    },
+    "location_name": {
+      "type": "string"
+    },
+    "location_lat": {
+      "type": "number"
+    },
+    "location_lng": {
+      "type": "number"
+    },
+    "skill_level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced",
+        "any"
+      ],
+      "default": "any"
+    },
+    "match_type": {
+      "type": "string",
+      "enum": [
+        "singles",
+        "doubles",
+        "any"
+      ],
+      "default": "any"
+    },
+    "note": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "ISO datetime"
+    }
+  },
+  "required": [
+    "user_email",
+    "user_name",
+    "status",
+    "expires_at"
+  ]
+}

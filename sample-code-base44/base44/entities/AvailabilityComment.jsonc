@@ -1,0 +1,27 @@
+{
+  "name": "AvailabilityComment",
+  "type": "object",
+  "properties": {
+    "post_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "user_avatar": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "post_id",
+    "user_email",
+    "user_name",
+    "message"
+  ]
+}

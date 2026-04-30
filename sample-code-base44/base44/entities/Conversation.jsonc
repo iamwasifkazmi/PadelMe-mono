@@ -1,0 +1,50 @@
+{
+  "name": "Conversation",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "direct",
+        "match",
+        "competition"
+      ],
+      "description": "Type of conversation"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "Linked match_id, competition_id, or other user email for DMs"
+    },
+    "entity_name": {
+      "type": "string",
+      "description": "Display name for the conversation (match title, competition name, or user name)"
+    },
+    "participant_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of participant emails"
+    },
+    "last_message_text": {
+      "type": "string",
+      "description": "Preview of the last message"
+    },
+    "last_message_at": {
+      "type": "string",
+      "description": "ISO timestamp of last message"
+    },
+    "last_message_by": {
+      "type": "string",
+      "description": "Email of last sender"
+    },
+    "unread_counts": {
+      "type": "object",
+      "description": "Map of email -> unread count"
+    }
+  },
+  "required": [
+    "type",
+    "participant_emails"
+  ]
+}

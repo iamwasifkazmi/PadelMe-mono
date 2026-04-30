@@ -1,0 +1,83 @@
+{
+  "name": "InstantPlayRequest",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "sport": {
+      "type": "string"
+    },
+    "skill_level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced",
+        "any"
+      ]
+    },
+    "skill_numeric": {
+      "type": "number",
+      "description": "1-10 numeric skill for range matching"
+    },
+    "time_window": {
+      "type": "string",
+      "enum": [
+        "now",
+        "1h",
+        "2h"
+      ],
+      "description": "How soon ready to play"
+    },
+    "location_name": {
+      "type": "string"
+    },
+    "location_lat": {
+      "type": "number"
+    },
+    "location_lng": {
+      "type": "number"
+    },
+    "max_distance_km": {
+      "type": "number",
+      "default": 10
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "waiting",
+        "matched",
+        "confirmed",
+        "declined",
+        "expired"
+      ],
+      "default": "waiting"
+    },
+    "matched_match_id": {
+      "type": "string",
+      "description": "Match ID once a match is created/found"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "ISO datetime when this request expires"
+    },
+    "notified_users": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Emails of nearby users notified"
+    }
+  },
+  "required": [
+    "user_email",
+    "user_name",
+    "sport",
+    "status",
+    "expires_at"
+  ]
+}

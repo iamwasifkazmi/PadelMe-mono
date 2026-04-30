@@ -1,0 +1,57 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "conversation_id": {
+      "type": "string",
+      "description": "Parent conversation ID"
+    },
+    "sender_email": {
+      "type": "string",
+      "description": "Sender email"
+    },
+    "sender_name": {
+      "type": "string",
+      "description": "Sender display name"
+    },
+    "sender_avatar": {
+      "type": "string",
+      "description": "Sender avatar URL"
+    },
+    "text": {
+      "type": "string",
+      "description": "Message text content"
+    },
+    "read_by": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Emails of users who have read this message"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "sent",
+        "delivered",
+        "read"
+      ],
+      "default": "sent",
+      "description": "Message delivery status: sent = created, delivered = recipient opened app, read = recipient opened conversation"
+    },
+    "delivered_at": {
+      "type": "string",
+      "description": "ISO timestamp when delivered"
+    },
+    "read_at": {
+      "type": "string",
+      "description": "ISO timestamp when read by recipient"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "sender_email",
+    "sender_name",
+    "text"
+  ]
+}

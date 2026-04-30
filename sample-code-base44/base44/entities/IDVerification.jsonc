@@ -1,0 +1,57 @@
+{
+  "name": "IDVerification",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string"
+    },
+    "user_name": {
+      "type": "string"
+    },
+    "id_type": {
+      "type": "string",
+      "enum": [
+        "passport",
+        "drivers_license",
+        "national_id"
+      ],
+      "description": "Type of government ID submitted"
+    },
+    "id_front_url": {
+      "type": "string",
+      "description": "Secure URL to front of ID document"
+    },
+    "id_back_url": {
+      "type": "string",
+      "description": "Secure URL to back of ID document (optional)"
+    },
+    "selfie_url": {
+      "type": "string",
+      "description": "Selfie holding ID for liveness check"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "admin_notes": {
+      "type": "string"
+    },
+    "reviewed_by": {
+      "type": "string"
+    },
+    "reviewed_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_email",
+    "id_type",
+    "id_front_url",
+    "status"
+  ]
+}

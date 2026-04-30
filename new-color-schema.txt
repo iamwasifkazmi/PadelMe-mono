@@ -1,0 +1,17 @@
+Category | Usage | Colour Name | Hex Code
+Primary | Main buttons / CTA | Padel Orange | #FF5C1A
+Primary Dark | Background / dark mode | Midnight Navy | #0A1B2A
+Background | App background | Light Grey | #F5F7FA
+Card | Cards / surfaces | White | #FFFFFF
+Text Primary | Main text | Dark Text | #111827
+Text Secondary | Secondary text | Muted Grey | #6B7280
+Border | Dividers / outlines | Light Border | #E5E7EB
+Accent | Links / active states | Electric Blue | #00B5E2
+Success | Wins / +ELO | Green | #22C55E
+Error | Loss / -ELO | Red | #EF4444
+Warning | Pending / alerts | Amber | #F59E0B
+Dark Background | Dark mode background | Midnight Navy | #0A1B2A
+Dark Card | Dark mode cards | Dark Grey | #111827
+Dark Text | Dark mode text | Light Text | #F9FAFB
+Dark Secondary Text | Dark mode subtext | Grey | #9CA3AF
+Dark Border | Dark mode divider | Dark Border | #1F2937

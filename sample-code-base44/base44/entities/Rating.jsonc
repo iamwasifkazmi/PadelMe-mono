@@ -1,0 +1,51 @@
+{
+  "name": "Rating",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string",
+      "description": "Match ID"
+    },
+    "rater_email": {
+      "type": "string",
+      "description": "Email of the person giving the rating"
+    },
+    "rated_email": {
+      "type": "string",
+      "description": "Email of the person being rated"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "teammate",
+        "opponent"
+      ],
+      "description": "Whether the rated player was a teammate or opponent of the rater"
+    },
+    "overall": {
+      "type": "number",
+      "description": "Overall rating 1-5 (required)"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Selected tags for this rating"
+    },
+    "is_revealed": {
+      "type": "boolean",
+      "description": "Whether the rating is revealed (blind until window closes)"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "ISO datetime when rating window expires (24h after match)"
+    }
+  },
+  "required": [
+    "match_id",
+    "rater_email",
+    "rated_email",
+    "overall"
+  ]
+}

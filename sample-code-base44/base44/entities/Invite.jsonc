@@ -1,0 +1,84 @@
+{
+  "name": "Invite",
+  "type": "object",
+  "properties": {
+    "token": {
+      "type": "string",
+      "description": "Unique invite token for link"
+    },
+    "sender_email": {
+      "type": "string"
+    },
+    "sender_name": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "match",
+        "competition",
+        "app"
+      ],
+      "description": "What is being invited to"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Match or Competition ID"
+    },
+    "event_name": {
+      "type": "string"
+    },
+    "event_date": {
+      "type": "string"
+    },
+    "event_time": {
+      "type": "string"
+    },
+    "event_location": {
+      "type": "string"
+    },
+    "sport": {
+      "type": "string"
+    },
+    "recipient_contact": {
+      "type": "string",
+      "description": "Email or phone of recipient if provided"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "email",
+        "sms",
+        "whatsapp",
+        "link"
+      ],
+      "description": "How invite was sent"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "created",
+        "sent",
+        "opened",
+        "joined",
+        "accepted",
+        "declined",
+        "expired"
+      ],
+      "default": "created"
+    },
+    "accepted_at": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "description": "ISO datetime \u2014 default 7 days"
+    }
+  },
+  "required": [
+    "token",
+    "sender_email",
+    "event_type",
+    "status"
+  ]
+}

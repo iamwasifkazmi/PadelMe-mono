@@ -1,0 +1,77 @@
+{
+  "name": "GroupStandings",
+  "type": "object",
+  "properties": {
+    "competition_id": {
+      "type": "string"
+    },
+    "group_name": {
+      "type": "string",
+      "description": "e.g. Group A \u2014 null for full league"
+    },
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "player_name": {
+      "type": "string"
+    },
+    "team_id": {
+      "type": "string",
+      "description": "For doubles team entries"
+    },
+    "played": {
+      "type": "number",
+      "default": 0
+    },
+    "won": {
+      "type": "number",
+      "default": 0
+    },
+    "lost": {
+      "type": "number",
+      "default": 0
+    },
+    "drawn": {
+      "type": "number",
+      "default": 0
+    },
+    "points": {
+      "type": "number",
+      "default": 0
+    },
+    "games_won": {
+      "type": "number",
+      "default": 0
+    },
+    "games_lost": {
+      "type": "number",
+      "default": 0
+    },
+    "game_difference": {
+      "type": "number",
+      "default": 0
+    },
+    "sets_won": {
+      "type": "number",
+      "default": 0
+    },
+    "sets_lost": {
+      "type": "number",
+      "default": 0
+    },
+    "set_difference": {
+      "type": "number",
+      "default": 0
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "competition_id",
+    "user_email"
+  ]
+}

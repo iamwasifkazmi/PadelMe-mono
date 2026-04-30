@@ -1,0 +1,47 @@
+{
+  "name": "StatsAuditLog",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "match_id": {
+      "type": "string"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "stats_updated",
+        "stats_recalculated",
+        "score_overridden",
+        "result_reversed",
+        "match_cancelled_post_confirm",
+        "duplicate_removed"
+      ],
+      "description": "What triggered this audit entry"
+    },
+    "previous_values": {
+      "type": "object",
+      "description": "JSON snapshot of stats before change"
+    },
+    "new_values": {
+      "type": "object",
+      "description": "JSON snapshot of stats after change"
+    },
+    "triggered_by": {
+      "type": "string",
+      "description": "Email of admin or system process that triggered the change"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_email",
+    "match_id",
+    "action_type"
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "name": "CompetitionMatch",
+  "type": "object",
+  "properties": {
+    "competition_id": {
+      "type": "string"
+    },
+    "round": {
+      "type": "number"
+    },
+    "round_name": {
+      "type": "string"
+    },
+    "player1_email": {
+      "type": "string"
+    },
+    "player1_name": {
+      "type": "string"
+    },
+    "player2_email": {
+      "type": "string"
+    },
+    "player2_name": {
+      "type": "string"
+    },
+    "team_a_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "All player emails in Team A (doubles)"
+    },
+    "team_b_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "All player emails in Team B (doubles)"
+    },
+    "score_player1": {
+      "type": "string"
+    },
+    "score_player2": {
+      "type": "string"
+    },
+    "submitted_score_p1": {
+      "type": "string"
+    },
+    "submitted_score_p2": {
+      "type": "string"
+    },
+    "submitted_by": {
+      "type": "string"
+    },
+    "confirmed_by": {
+      "type": "string"
+    },
+    "rejected_by": {
+      "type": "string"
+    },
+    "rejection_reason": {
+      "type": "string"
+    },
+    "evidence_url": {
+      "type": "string"
+    },
+    "winner_email": {
+      "type": "string"
+    },
+    "winner_team": {
+      "type": "string",
+      "enum": [
+        "team_a",
+        "team_b"
+      ],
+      "description": "Winning team for doubles matches"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "scheduled",
+        "check_in_open",
+        "in_progress",
+        "awaiting_score",
+        "pending_validation",
+        "confirmed",
+        "disputed",
+        "admin_review"
+      ]
+    },
+    "scheduled_date": {
+      "type": "string"
+    },
+    "scheduled_time": {
+      "type": "string"
+    },
+    "match_order": {
+      "type": "number"
+    },
+    "stats_updated": {
+      "type": "boolean",
+      "description": "True once player stats have been updated \u2014 prevents duplicate updates"
+    },
+    "checked_in_p1": {
+      "type": "boolean",
+      "description": "Player 1 has checked in"
+    },
+    "checked_in_p2": {
+      "type": "boolean",
+      "description": "Player 2 has checked in"
+    },
+    "score_buffer_minutes": {
+      "type": "number",
+      "description": "Minutes after match start before score entry opens (overrides default)"
+    },
+    "score_deadline_hours": {
+      "type": "number",
+      "description": "Hours after match start that the submission window closes (overrides default)"
+    }
+  },
+  "required": [
+    "competition_id",
+    "round",
+    "status"
+  ]
+}

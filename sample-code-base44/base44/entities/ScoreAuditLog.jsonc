@@ -1,0 +1,57 @@
+{
+  "name": "ScoreAuditLog",
+  "type": "object",
+  "properties": {
+    "competition_match_id": {
+      "type": "string",
+      "description": "CompetitionMatch ID"
+    },
+    "competition_id": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "submitted",
+        "edited",
+        "confirmed",
+        "rejected",
+        "admin_override"
+      ],
+      "description": "What action was taken"
+    },
+    "actor_email": {
+      "type": "string",
+      "description": "Who performed the action"
+    },
+    "actor_name": {
+      "type": "string"
+    },
+    "score_p1": {
+      "type": "string"
+    },
+    "score_p2": {
+      "type": "string"
+    },
+    "player1_name": {
+      "type": "string"
+    },
+    "player2_name": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Reason for rejection or override"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO timestamp of action"
+    }
+  },
+  "required": [
+    "competition_match_id",
+    "action",
+    "actor_email",
+    "timestamp"
+  ]
+}

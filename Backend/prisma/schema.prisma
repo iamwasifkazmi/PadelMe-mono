@@ -1,0 +1,388 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum MatchStatus {
+  open
+  full
+  in_progress
+  awaiting_score
+  pending_validation
+  completed
+  cancelled
+  abandoned
+  disputed
+}
+
+enum MatchType {
+  singles
+  doubles
+  mixed_doubles
+}
+
+enum CompetitionType {
+  tournament
+  league
+}
+
+enum CompetitionFormat {
+  knockout
+  round_robin
+  group_knockout
+}
+
+enum CompetitionStatus {
+  upcoming
+  registration
+  in_progress
+  completed
+  cancelled
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  passwordHash       String?
+  authProvider       String    @default("local")
+  isEmailVerified    Boolean   @default(false)
+  fullName           String?
+  bio                String?
+  photoUrl           String?
+  age                Int?
+  gender             String?
+  location           String?
+  locationLat        Float?
+  locationLng        Float?
+  locationName       String?
+  sports             String[]  @default([])
+  skillLevel         Int?
+  skillLabel         String?
+  eloRating          Int       @default(1000)
+  profileVisibility  String    @default("public")
+  photoVerified      Boolean   @default(false)
+  idVerified         Boolean   @default(false)
+  averageRating      Float?
+  matchHistory       Json?
+  lastActiveAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  matchesHosted      Match[]   @relation("MatchHost")
+  notifications      Notification[]
+  playerStats        PlayerStats?
+  ratingsGiven       Rating[]  @relation("Rater")
+  ratingsReceived    Rating[]  @relation("Rated")
+  passwordOtps       PasswordResetOtp[]
+  emailOtps          EmailVerificationOtp[]
+}
+
+model PasswordResetOtp {
+  id         String   @id @default(cuid())
+  userEmail  String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail, createdAt])
+}
+
+model EmailVerificationOtp {
+  id         String   @id @default(cuid())
+  userEmail  String
+  code       String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail, createdAt])
+}
+
+model Match {
+  id                String      @id @default(cuid())
+  title             String
+  date              DateTime
+  timeLabel         String
+  durationMinutes   Int?
+  locationName      String
+  locationAddress   String?
+  locationLat       Float?
+  locationLng       Float?
+  skillLevel        String?
+  maxPlayers        Int
+  players           String[]    @default([])
+  status            MatchStatus @default(open)
+  visibility        String      @default("public")
+  invitedEmails     String[]    @default([])
+  tags              String[]    @default([])
+  isInstant         Boolean     @default(false)
+  matchType         MatchType   @default(singles)
+  teamA             String[]    @default([])
+  teamB             String[]    @default([])
+  teamACaptainEmail String?
+  teamBCaptainEmail String?
+  scoreTeamA        String?
+  scoreTeamB        String?
+  winnerTeam        String?
+  winnerEmail       String?
+  notes             String?
+  hostId            String?
+  host              User?       @relation("MatchHost", fields: [hostId], references: [id])
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+model Competition {
+  id              String             @id @default(cuid())
+  name            String
+  description     String?
+  type            CompetitionType
+  format          CompetitionFormat
+  status          CompetitionStatus  @default(registration)
+  visibility      String             @default("public")
+  locationName    String?
+  locationAddress String?
+  startDate       DateTime?
+  endDate         DateTime?
+  skillLevel      String?
+  maxPlayers      Int?
+  participants    String[]           @default([])
+  hostEmail       String?
+  entryFee        Float?
+  prizePool       Float?
+  scoringMode     String?
+  numSets         Int?
+  gamesPerSet     Int?
+  tiebreakRule    String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  matches         CompetitionMatch[]
+}
+
+model CompetitionMatch {
+  id              String    @id @default(cuid())
+  competitionId   String
+  round           Int
+  roundName       String?
+  player1Email    String?
+  player1Name     String?
+  player2Email    String?
+  player2Name     String?
+  teamAEmails     String[]  @default([])
+  teamBEmails     String[]  @default([])
+  scorePlayer1    String?
+  scorePlayer2    String?
+  winnerEmail     String?
+  winnerTeam      String?
+  status          String    @default("scheduled")
+  scheduledDate   DateTime?
+  scheduledTime   String?
+  matchOrder      Int?
+  statsUpdated    Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  competition     Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+}
+
+model FriendRequest {
+  id             String   @id @default(cuid())
+  requesterEmail String
+  recipientEmail String
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  type            String
+  entityId        String?
+  entityName      String?
+  participantEmails String[] @default([])
+  lastMessageText String?
+  lastMessageAt   DateTime?
+  lastMessageBy   String?
+  unreadCounts    Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  messages        Message[]
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderEmail    String
+  senderName     String
+  senderAvatar   String?
+  text           String
+  readBy         String[] @default([])
+  status         String   @default("sent")
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  matchId     String
+  senderEmail String
+  senderName  String
+  text        String
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id               String   @id @default(cuid())
+  userEmail        String
+  type             String
+  title            String
+  body             String?
+  relatedEntityType String?
+  relatedEntityId  String?
+  matchId          String?
+  isRead           Boolean  @default(false)
+  priority         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+}
+
+model Rating {
+  id         String   @id @default(cuid())
+  matchId    String?
+  raterId    String?
+  ratedId    String?
+  raterEmail String
+  ratedEmail String
+  role       String?
+  overall    Int
+  tags       String[] @default([])
+  comment    String?
+  isRevealed Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  rater      User?    @relation("Rater", fields: [raterId], references: [id])
+  rated      User?    @relation("Rated", fields: [ratedId], references: [id])
+}
+
+model PlayerStats {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  userEmail        String   @unique
+  matchesPlayed    Int      @default(0)
+  matchesWon       Int      @default(0)
+  matchesLost      Int      @default(0)
+  matchWinPct      Int      @default(0)
+  gamesWon         Int      @default(0)
+  gamesLost        Int      @default(0)
+  setsWon          Int      @default(0)
+  setsLost         Int      @default(0)
+  currentWinStreak Int      @default(0)
+  bestWinStreak    Int      @default(0)
+  eloRating        Int      @default(1000)
+  eloPeak          Int      @default(1000)
+  skillLabel       String?
+  lastMatchAt      DateTime?
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlayerRecentForm {
+  id             String   @id @default(cuid())
+  userEmail      String
+  matchId        String
+  matchTitle     String?
+  matchDate      DateTime?
+  eventType      String?
+  matchFormat    String?
+  result         String
+  opponentEmails String[] @default([])
+  scoreSummary   String?
+  eloChange      Int?
+  eloAfter       Int?
+  createdAt      DateTime @default(now())
+}
+
+model PlayerRatingSummary {
+  id                         String   @id @default(cuid())
+  userId                     String?  @unique
+  userEmail                  String   @unique
+  averageRating              Float?
+  totalRatings               Int      @default(0)
+  tagReliableCount           Int      @default(0)
+  tagGoodAttitudeCount       Int      @default(0)
+  tagSkillAccurateCount      Int      @default(0)
+  tagWouldPlayAgainCount     Int      @default(0)
+  updatedAt                  DateTime @updatedAt
+}
+
+model GroupStandings {
+  id             String   @id @default(cuid())
+  competitionId  String
+  userEmail      String
+  playerName     String?
+  played         Int      @default(0)
+  won            Int      @default(0)
+  lost           Int      @default(0)
+  points         Int      @default(0)
+  gamesWon       Int      @default(0)
+  gamesLost      Int      @default(0)
+  setsWon        Int      @default(0)
+  setsLost       Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+model InstantPlayRequest {
+  id             String   @id @default(cuid())
+  userEmail      String
+  userName       String?
+  sport          String?
+  skillLevel     String?
+  skillNumeric   Int?
+  timeWindow     String?
+  locationName   String?
+  locationLat    Float?
+  locationLng    Float?
+  maxDistanceKm  Int?
+  matchType      MatchType @default(doubles)
+  status         String    @default("waiting")
+  expiresAt      DateTime?
+  matchedMatchId String?
+  notifiedUsers  String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Invite {
+  id           String   @id @default(cuid())
+  senderEmail  String
+  receiverEmail String
+  eventId      String?
+  token        String   @unique
+  status       String   @default("sent")
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model IDVerification {
+  id          String   @id @default(cuid())
+  userEmail   String
+  idPhotoUrl  String?
+  selfieUrl   String?
+  status      String   @default("pending")
+  reviewNotes String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

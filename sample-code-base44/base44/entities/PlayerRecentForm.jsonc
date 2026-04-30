@@ -1,0 +1,72 @@
+{
+  "name": "PlayerRecentForm",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "match_id": {
+      "type": "string",
+      "description": "Match or CompetitionMatch ID"
+    },
+    "match_title": {
+      "type": "string"
+    },
+    "match_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "casual",
+        "recurring",
+        "tournament",
+        "competition"
+      ],
+      "description": "Type of event"
+    },
+    "match_format": {
+      "type": "string",
+      "enum": [
+        "singles",
+        "doubles",
+        "mixed_doubles"
+      ]
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "W",
+        "L",
+        "D"
+      ]
+    },
+    "opponent_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Opponents in this match"
+    },
+    "score_summary": {
+      "type": "string",
+      "description": "Human-readable score e.g. 6-4, 6-3"
+    },
+    "elo_change": {
+      "type": "number"
+    },
+    "elo_after": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "user_id",
+    "user_email",
+    "match_id",
+    "result"
+  ]
+}

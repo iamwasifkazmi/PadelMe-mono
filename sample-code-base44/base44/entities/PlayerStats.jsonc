@@ -1,0 +1,119 @@
+{
+  "name": "PlayerStats",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "References User.id"
+    },
+    "user_email": {
+      "type": "string",
+      "description": "Denormalised for fast filtering"
+    },
+    "matches_played": {
+      "type": "number",
+      "default": 0
+    },
+    "matches_won": {
+      "type": "number",
+      "default": 0
+    },
+    "matches_lost": {
+      "type": "number",
+      "default": 0
+    },
+    "matches_drawn": {
+      "type": "number",
+      "default": 0
+    },
+    "match_win_pct": {
+      "type": "number",
+      "default": 0,
+      "description": "matches_won / matches_played \u00d7 100"
+    },
+    "games_won": {
+      "type": "number",
+      "default": 0
+    },
+    "games_lost": {
+      "type": "number",
+      "default": 0
+    },
+    "game_difference": {
+      "type": "number",
+      "default": 0
+    },
+    "sets_won": {
+      "type": "number",
+      "default": 0
+    },
+    "sets_lost": {
+      "type": "number",
+      "default": 0
+    },
+    "set_difference": {
+      "type": "number",
+      "default": 0
+    },
+    "current_win_streak": {
+      "type": "number",
+      "default": 0
+    },
+    "best_win_streak": {
+      "type": "number",
+      "default": 0
+    },
+    "no_show_count": {
+      "type": "number",
+      "default": 0
+    },
+    "reliability_score": {
+      "type": "number",
+      "default": 100,
+      "description": "0-100 reliability score"
+    },
+    "tournaments_entered": {
+      "type": "number",
+      "default": 0
+    },
+    "tournaments_won": {
+      "type": "number",
+      "default": 0
+    },
+    "leagues_entered": {
+      "type": "number",
+      "default": 0
+    },
+    "competitions_entered": {
+      "type": "number",
+      "default": 0
+    },
+    "elo_rating": {
+      "type": "number",
+      "default": 1000
+    },
+    "elo_peak": {
+      "type": "number",
+      "default": 1000
+    },
+    "skill_label": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced"
+      ]
+    },
+    "last_match_at": {
+      "type": "string",
+      "description": "ISO date of most recent confirmed match"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "user_email"
+  ]
+}

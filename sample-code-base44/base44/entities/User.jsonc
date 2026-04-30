@@ -1,0 +1,259 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "age": {
+      "type": "number",
+      "description": "User age"
+    },
+    "gender": {
+      "type": "string",
+      "enum": [
+        "male",
+        "female",
+        "other"
+      ],
+      "description": "User gender"
+    },
+    "location": {
+      "type": "string",
+      "description": "City/town"
+    },
+    "location_lat": {
+      "type": "number",
+      "description": "Latitude"
+    },
+    "location_lng": {
+      "type": "number",
+      "description": "Longitude"
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Location display name"
+    },
+    "sports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sports played"
+    },
+    "skill_level": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Skill 1-10"
+    },
+    "skill_label": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced"
+      ],
+      "description": "Categorical skill label"
+    },
+    "skill_confidence": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "description": "Confidence in skill assessment"
+    },
+    "elo_rating": {
+      "type": "number",
+      "default": 1000,
+      "description": "Elo-style skill rating"
+    },
+    "preferred_position": {
+      "type": "string",
+      "enum": [
+        "left",
+        "right",
+        "both"
+      ],
+      "description": "Court position preference"
+    },
+    "availability_days": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Available days"
+    },
+    "availability_times": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Available times"
+    },
+    "travel_radius_km": {
+      "type": "number",
+      "description": "Willing to travel km"
+    },
+    "use_current_location": {
+      "type": "boolean",
+      "description": "Use current location for matching"
+    },
+    "match_type_preference": {
+      "type": "string",
+      "enum": [
+        "casual",
+        "competitive",
+        "training"
+      ],
+      "description": "Preferred match type"
+    },
+    "match_format_preference": {
+      "type": "string",
+      "enum": [
+        "singles",
+        "doubles",
+        "both"
+      ],
+      "description": "Preferred match format"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Player tags"
+    },
+    "favourite_venues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Favourite venue names/IDs"
+    },
+    "photo_url": {
+      "type": "string",
+      "description": "Profile photo URL"
+    },
+    "photo_verified": {
+      "type": "boolean",
+      "description": "Photo verification status"
+    },
+    "id_verified": {
+      "type": "boolean",
+      "description": "ID verification status"
+    },
+    "notify_instant_play": {
+      "type": "boolean",
+      "default": true,
+      "description": "Notify on Instant Play matches"
+    },
+    "notify_nearby_matches": {
+      "type": "boolean",
+      "default": true,
+      "description": "Notify on nearby matches"
+    },
+    "notify_match_invites": {
+      "type": "boolean",
+      "default": true,
+      "description": "Notify on match invites"
+    },
+    "notify_tournaments": {
+      "type": "boolean",
+      "default": true,
+      "description": "Notify on tournament invitations"
+    },
+    "bio": {
+      "type": "string",
+      "description": "User bio/about"
+    },
+    "profile_complete": {
+      "type": "boolean",
+      "description": "Profile completeness flag"
+    },
+    "avg_rating": {
+      "type": "number",
+      "description": "Average match rating 1-5"
+    },
+    "avg_reliability": {
+      "type": "number",
+      "description": "Average reliability score 1-5"
+    },
+    "total_matches": {
+      "type": "number",
+      "default": 0,
+      "description": "Total matches played"
+    },
+    "total_wins": {
+      "type": "number",
+      "default": 0,
+      "description": "Total wins"
+    },
+    "total_losses": {
+      "type": "number",
+      "default": 0,
+      "description": "Total losses"
+    },
+    "wins": {
+      "type": "number",
+      "default": 0,
+      "description": "Wins alias"
+    },
+    "matches_played": {
+      "type": "number",
+      "default": 0,
+      "description": "Matches played alias"
+    },
+    "average_rating": {
+      "type": "number",
+      "description": "Average rating alias"
+    },
+    "match_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "match_id": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "win",
+              "loss"
+            ]
+          },
+          "score": {
+            "type": "string"
+          },
+          "elo_change": {
+            "type": "number"
+          },
+          "elo_after": {
+            "type": "number"
+          }
+        }
+      },
+      "description": "Historical match results with Elo changes"
+    },
+    "profile_visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "private"
+      ],
+      "default": "public",
+      "description": "Controls who can view this profile"
+    },
+    "last_active_at": {
+      "type": "string",
+      "description": "ISO timestamp of last app activity \u2014 used for online/active status"
+    }
+  },
+  "required": []
+}

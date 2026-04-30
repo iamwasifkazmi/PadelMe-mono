@@ -1,0 +1,28 @@
+{
+  "name": "UserStatus",
+  "type": "object",
+  "properties": {
+    "author_email": {
+      "type": "string"
+    },
+    "author_name": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "friends",
+        "everyone"
+      ],
+      "default": "everyone"
+    }
+  },
+  "required": [
+    "author_email",
+    "author_name",
+    "content"
+  ]
+}

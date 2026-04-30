@@ -1,0 +1,24 @@
+import { Router } from "express";
+import { matchesRouter } from "./matches/matches.router.js";
+import { competitionsRouter } from "./competitions/competitions.router.js";
+import { usersRouter } from "./users/users.router.js";
+import { conversationsRouter } from "./messages/conversations.router.js";
+import { notificationsRouter } from "./notifications/notifications.router.js";
+import { instantPlayRouter } from "./instant-play/instant-play.router.js";
+import { friendsRouter } from "./friends/friends.router.js";
+import { invitesRouter } from "./invites/invites.router.js";
+import { verificationRouter } from "./verification/verification.router.js";
+import { authRouter } from "./auth/auth.router.js";
+
+export const apiRouter = Router();
+
+apiRouter.use("/users", usersRouter);
+apiRouter.use("/matches", matchesRouter);
+apiRouter.use("/competitions", competitionsRouter);
+apiRouter.use("/conversations", conversationsRouter);
+apiRouter.use("/notifications", notificationsRouter);
+apiRouter.use("/instant-play", instantPlayRouter);
+apiRouter.use("/friends", friendsRouter);
+apiRouter.use("/invites", invitesRouter);
+apiRouter.use("/verification", verificationRouter);
+apiRouter.use("/auth", authRouter);

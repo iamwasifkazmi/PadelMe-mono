@@ -1,0 +1,73 @@
+{
+  "name": "PerformanceSession",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "user_email": {
+      "type": "string"
+    },
+    "provider_name": {
+      "type": "string",
+      "description": "e.g. PadelPlay, Wingfield, manual"
+    },
+    "provider_session_id": {
+      "type": "string",
+      "description": "External session reference"
+    },
+    "session_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "duration_minutes": {
+      "type": "number"
+    },
+    "venue_name": {
+      "type": "string"
+    },
+    "linked_match_id": {
+      "type": "string",
+      "description": "Optional link to a Match record"
+    },
+    "import_source": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "api",
+        "csv",
+        "device"
+      ],
+      "default": "manual"
+    },
+    "metrics": {
+      "type": "array",
+      "description": "Embedded metrics for this session",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_name": {
+            "type": "string",
+            "description": "e.g. smashes, volleys, winners, errors, control_score"
+          },
+          "metric_value": {
+            "type": "number"
+          },
+          "metric_unit": {
+            "type": "string",
+            "description": "e.g. count, percentage, score"
+          }
+        }
+      }
+    },
+    "raw_payload": {
+      "type": "object",
+      "description": "Original JSON from the provider for reference"
+    }
+  },
+  "required": [
+    "user_email",
+    "session_date",
+    "import_source"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "Venue",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Venue / court name"
+    },
+    "sport": {
+      "type": "string",
+      "description": "Primary sport (padel, tennis, etc.)"
+    },
+    "address": {
+      "type": "string",
+      "description": "Full address"
+    },
+    "city": {
+      "type": "string",
+      "description": "Town or city"
+    },
+    "postcode": {
+      "type": "string",
+      "description": "Postcode / zip"
+    },
+    "lat": {
+      "type": "number"
+    },
+    "lng": {
+      "type": "number"
+    },
+    "added_by": {
+      "type": "string",
+      "description": "Email of user who added this venue"
+    }
+  },
+  "required": [
+    "name",
+    "city"
+  ]
+}

@@ -1,0 +1,233 @@
+{
+  "name": "Competition",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "tournament",
+        "league"
+      ]
+    },
+    "format": {
+      "type": "string",
+      "enum": [
+        "knockout",
+        "round_robin",
+        "group_knockout"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "upcoming",
+        "registration",
+        "in_progress",
+        "completed",
+        "cancelled"
+      ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "invite_only"
+      ],
+      "default": "public",
+      "description": "Who can see and join this competition"
+    },
+    "invited_emails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Emails of users explicitly invited to this competition"
+    },
+    "location_name": {
+      "type": "string"
+    },
+    "location_address": {
+      "type": "string",
+      "description": "Full venue address"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "skill_level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced",
+        "any"
+      ]
+    },
+    "max_players": {
+      "type": "number"
+    },
+    "entry_fee": {
+      "type": "number"
+    },
+    "prize_type": {
+      "type": "string",
+      "enum": [
+        "cash",
+        "non_cash",
+        "badges"
+      ]
+    },
+    "prize_description": {
+      "type": "string"
+    },
+    "prize_pool": {
+      "type": "number"
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "host_email": {
+      "type": "string"
+    },
+    "is_verified_only": {
+      "type": "boolean"
+    },
+    "platform_fee_pct": {
+      "type": "number",
+      "default": 2.5
+    },
+    "season": {
+      "type": "string"
+    },
+    "weekly_day": {
+      "type": "string",
+      "description": "Day of week for league fixtures e.g. Monday"
+    },
+    "league_weeks": {
+      "type": "number",
+      "description": "Total number of weeks the league runs"
+    },
+    "current_week": {
+      "type": "number",
+      "default": 0,
+      "description": "Which week of fixtures has been generated so far"
+    },
+    "gender_requirement": {
+      "type": "string",
+      "enum": [
+        "any",
+        "male",
+        "female",
+        "mixed"
+      ],
+      "default": "any"
+    },
+    "age_min": {
+      "type": "number"
+    },
+    "age_max": {
+      "type": "number"
+    },
+    "skill_range_min": {
+      "type": "number"
+    },
+    "skill_range_max": {
+      "type": "number"
+    },
+    "min_rating_threshold": {
+      "type": "number"
+    },
+    "verification_requirement": {
+      "type": "string",
+      "enum": [
+        "none",
+        "photo",
+        "id"
+      ],
+      "default": "none"
+    },
+    "team_structure": {
+      "type": "string",
+      "enum": [
+        "singles",
+        "doubles",
+        "mixed_doubles"
+      ],
+      "default": "singles"
+    },
+    "scoring_mode": {
+      "type": "string",
+      "enum": [
+        "sets",
+        "simple"
+      ],
+      "default": "simple",
+      "description": "How scores are entered in tournament matches"
+    },
+    "num_sets": {
+      "type": "number",
+      "enum": [
+        1,
+        3,
+        5
+      ],
+      "default": 1,
+      "description": "Number of sets in matches"
+    },
+    "games_per_set": {
+      "type": "number",
+      "default": 6,
+      "description": "Games needed to win a set"
+    },
+    "tiebreak_rule": {
+      "type": "string",
+      "enum": [
+        "tiebreak_at_6",
+        "match_tiebreak",
+        "none"
+      ],
+      "default": "tiebreak_at_6"
+    },
+    "points_win": {
+      "type": "number",
+      "default": 3,
+      "description": "Points awarded for a win in group stages"
+    },
+    "points_loss": {
+      "type": "number",
+      "default": 0,
+      "description": "Points awarded for a loss in group stages"
+    },
+    "points_draw": {
+      "type": "number",
+      "default": 1,
+      "description": "Points awarded for a draw in group stages"
+    },
+    "allow_draws": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether draws are allowed in matches"
+    }
+  },
+  "required": [
+    "name",
+    "type",
+    "format",
+    "status",
+    "skill_level",
+    "max_players"
+  ]
+}
