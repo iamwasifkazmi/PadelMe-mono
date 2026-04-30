@@ -237,6 +237,10 @@ model ChatMessage {
   senderEmail String
   senderName  String
   text        String
+  readBy      String[] @default([])
+  status      String   @default("sent")
+  deliveredAt DateTime?
+  readAt      DateTime?
   createdAt   DateTime @default(now())
 }
 

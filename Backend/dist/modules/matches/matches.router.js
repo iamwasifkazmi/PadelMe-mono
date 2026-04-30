@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
 export const matchesRouter = Router();
 matchesRouter.get("/", async (req, res) => {
     const status = req.query.status;
@@ -83,6 +84,34 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     return res.json(updated);
 });
 matchesRouter.get("/:id/chat-messages", async (req, res) => {
+    const viewerEmail = String(req.query.email || "").trim().toLowerCase();
+    if (viewerEmail) {
+        const pendingDelivered = await prisma.chatMessage.findMany({
+            where: {
+                matchId: req.params.id,
+                senderEmail: { not: viewerEmail },
+                status: "sent",
+            },
+            orderBy: { createdAt: "asc" },
+            take: 400,
+        });
+        if (pendingDelivered.length > 0) {
+            const deliveredAt = new Date();
+            await prisma.$transaction(pendingDelivered.map((m) => prisma.chatMessage.update({
+                where: { id: m.id },
+                data: {
+                    status: "delivered",
+                    deliveredAt,
+                },
+            })));
+            emitMatchReceipt(req.params.id, {
+                messageIds: pendingDelivered.map((m) => m.id),
+                status: "delivered",
+                actorEmail: viewerEmail,
+                at: deliveredAt,
+            });
+        }
+    }
     const messages = await prisma.chatMessage.findMany({
         where: { matchId: req.params.id },
         orderBy: { createdAt: "asc" },
@@ -103,7 +132,42 @@ matchesRouter.post("/:id/chat-messages", async (req, res) => {
             senderEmail,
             senderName,
             text,
+            readBy: [senderEmail],
+            status: "sent",
         },
     });
+    emitMatchMessage(req.params.id, created);
     return res.status(201).json(created);
+});
+matchesRouter.post("/:id/chat-read", async (req, res) => {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    if (!email)
+        return res.status(400).json({ error: "email is required" });
+    const pendingRead = await prisma.chatMessage.findMany({
+        where: {
+            matchId: req.params.id,
+            senderEmail: { not: email },
+            NOT: { readBy: { has: email } },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 400,
+    });
+    if (pendingRead.length === 0)
+        return res.json({ success: true, updated: 0 });
+    const readAt = new Date();
+    await prisma.$transaction(pendingRead.map((m) => prisma.chatMessage.update({
+        where: { id: m.id },
+        data: {
+            readBy: [...m.readBy, email],
+            status: "read",
+            readAt,
+        },
+    })));
+    emitMatchReceipt(req.params.id, {
+        messageIds: pendingRead.map((m) => m.id),
+        status: "read",
+        actorEmail: email,
+        at: readAt,
+    });
+    return res.json({ success: true, updated: pendingRead.length });
 });
