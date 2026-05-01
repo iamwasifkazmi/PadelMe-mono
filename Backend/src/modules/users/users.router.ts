@@ -1,7 +1,33 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
+import { Prisma } from "@prisma/client";
 
 export const usersRouter = Router();
+
+function buildDisplayNameFromEmail(email: string) {
+  const baseName = email.split("@")[0] || "Player";
+  return (
+    baseName
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || "Player"
+  );
+}
+
+async function ensureUserByEmail(email: string) {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email,
+        fullName: buildDisplayNameFromEmail(email),
+        skillLabel: "intermediate",
+      },
+    });
+  }
+  return user;
+}
 
 usersRouter.get("/", async (req, res) => {
   const search = String(req.query.search || "").trim().toLowerCase();
@@ -20,22 +46,7 @@ usersRouter.get("/", async (req, res) => {
 usersRouter.get("/me", async (req, res) => {
   const email = String(req.query.email || "");
   if (!email) return res.status(400).json({ error: "email query is required" });
-  let user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    const baseName = email.split("@")[0] || "Player";
-    const guessedName = baseName
-      .split(/[._-]+/)
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
-    user = await prisma.user.create({
-      data: {
-        email,
-        fullName: guessedName || "Player",
-        skillLabel: "intermediate",
-      },
-    });
-  }
+  const user = await ensureUserByEmail(email);
   return res.json(user);
 });
 
@@ -49,19 +60,90 @@ usersRouter.patch("/me", async (req, res) => {
     fullName: string;
     bio: string;
     location: string;
+    photoUrl: string;
+    photoVerified: boolean;
+    age: number | null;
+    gender: string;
+    skillLevel: number | null;
     skillLabel: string;
+    skillConfidence: string;
+    preferredPosition: string;
+    availabilityDays: string[];
+    availabilityTimes: string[];
+    travelRadiusKm: number | null;
+    useCurrentLocation: boolean;
+    matchTypePreference: string;
+    matchFormatPreference: string;
+    tags: string[];
+    profileVisibility: string;
+    notifyInstantPlay: boolean;
+    notifyNearbyMatches: boolean;
+    notifyMatchInvites: boolean;
+    notifyTournaments: boolean;
+    profileComplete: boolean;
   }>;
 
-  const updated = await prisma.user.update({
-    where: { email },
-    data: {
-      fullName: payload.fullName ?? existing.fullName ?? undefined,
-      bio: payload.bio ?? existing.bio ?? undefined,
-      location: payload.location ?? existing.location ?? undefined,
-      skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
-    },
-  });
-  return res.json(updated);
+  try {
+    const updated = await prisma.user.update({
+      where: { email },
+      data: {
+        fullName: payload.fullName ?? existing.fullName ?? undefined,
+        bio: payload.bio ?? existing.bio ?? undefined,
+        location: payload.location ?? existing.location ?? undefined,
+        photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
+        photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+        age: payload.age ?? existing.age ?? undefined,
+        gender: payload.gender ?? existing.gender ?? undefined,
+        skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
+        skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
+        skillConfidence: payload.skillConfidence ?? existing.skillConfidence ?? undefined,
+        preferredPosition: payload.preferredPosition ?? existing.preferredPosition ?? undefined,
+        availabilityDays: payload.availabilityDays ?? existing.availabilityDays ?? undefined,
+        availabilityTimes: payload.availabilityTimes ?? existing.availabilityTimes ?? undefined,
+        travelRadiusKm: payload.travelRadiusKm ?? existing.travelRadiusKm ?? undefined,
+        useCurrentLocation: payload.useCurrentLocation ?? existing.useCurrentLocation ?? undefined,
+        matchTypePreference: payload.matchTypePreference ?? existing.matchTypePreference ?? undefined,
+        matchFormatPreference: payload.matchFormatPreference ?? existing.matchFormatPreference ?? undefined,
+        tags: payload.tags ?? existing.tags ?? undefined,
+        profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
+        notifyInstantPlay: payload.notifyInstantPlay ?? existing.notifyInstantPlay ?? undefined,
+        notifyNearbyMatches: payload.notifyNearbyMatches ?? existing.notifyNearbyMatches ?? undefined,
+        notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
+        notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
+        profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
+      },
+    });
+    return res.json(updated);
+  } catch (error) {
+    // If DB schema is behind or a field payload is too large, fallback to legacy-safe update.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2022" || error.code === "P2000")
+    ) {
+      const fallback = await prisma.user.update({
+        where: { email },
+        data: {
+          fullName: payload.fullName ?? existing.fullName ?? undefined,
+          bio: payload.bio ?? existing.bio ?? undefined,
+          location: payload.location ?? existing.location ?? undefined,
+          // In fallback mode we avoid writing potentially incompatible/oversized photo payloads.
+          photoUrl:
+            error.code === "P2000"
+              ? existing.photoUrl ?? undefined
+              : payload.photoUrl ?? existing.photoUrl ?? undefined,
+          photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+          age: payload.age ?? existing.age ?? undefined,
+          gender: payload.gender ?? existing.gender ?? undefined,
+          skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
+          skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
+          profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
+          idVerified: existing.idVerified ?? undefined,
+        },
+      });
+      return res.json(fallback);
+    }
+    throw error;
+  }
 });
 
 usersRouter.get("/recent-results", async (req, res) => {
@@ -102,6 +184,237 @@ usersRouter.get("/recent-results", async (req, res) => {
       date: m.date,
     })),
   );
+});
+
+usersRouter.get("/profile-summary", async (req, res) => {
+  const email = String(req.query.email || "").trim();
+  if (!email) return res.status(400).json({ error: "email query is required" });
+
+  const user = await ensureUserByEmail(email);
+  const [playerStats, myMatches, myCompetitions, recentForm, friendRequests] = await Promise.all([
+    prisma.playerStats.findUnique({ where: { userEmail: email } }),
+    prisma.match.findMany({
+      where: { players: { has: email } },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      take: 120,
+    }),
+    prisma.competition.findMany({
+      where: { OR: [{ participants: { has: email } }, { hostEmail: email }] },
+      orderBy: [{ endDate: "desc" }, { startDate: "desc" }, { createdAt: "desc" }],
+      take: 80,
+    }),
+    prisma.playerRecentForm.findMany({
+      where: { userEmail: email },
+      orderBy: [{ matchDate: "desc" }, { createdAt: "desc" }],
+      take: 30,
+    }),
+    prisma.friendRequest.findMany({
+      where: { OR: [{ requesterEmail: email }, { recipientEmail: email }] },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    }),
+  ]);
+
+  const completedMatches = myMatches.filter((m) => m.status === "completed");
+  const upcomingMatches = myMatches
+    .filter((m) => m.status === "open" || m.status === "full")
+    .slice(0, 5)
+    .map((m) => ({
+      id: m.id,
+      title: m.title,
+      date: m.date,
+      locationName: m.locationName,
+      status: m.status,
+    }));
+
+  const totalPlayed = playerStats?.matchesPlayed ?? completedMatches.length;
+  const totalWins = playerStats?.matchesWon ?? 0;
+  const totalLosses = playerStats?.matchesLost ?? 0;
+  const winRate = totalPlayed > 0 ? Math.round((totalWins / totalPlayed) * 100) : 0;
+  const eloRating = playerStats?.eloRating ?? user.eloRating ?? 1000;
+  const eloPeak = playerStats?.eloPeak ?? Math.max(eloRating, 1000);
+
+  const accepted = friendRequests.filter((r) => r.status === "accepted");
+  const friendEmails = accepted.map((r) =>
+    r.requesterEmail === email ? r.recipientEmail : r.requesterEmail,
+  );
+  const friends = friendEmails.length
+    ? await prisma.user.findMany({
+        where: { email: { in: friendEmails } },
+        orderBy: { updatedAt: "desc" },
+        take: 6,
+      })
+    : [];
+
+  const playedWithEmails = Array.from(
+    new Set(
+      completedMatches
+        .flatMap((m) => m.players)
+        .filter((participantEmail) => participantEmail !== email),
+    ),
+  );
+  const playedWith = playedWithEmails.length
+    ? await prisma.user.findMany({
+        where: { email: { in: playedWithEmails.slice(0, 20) } },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+      })
+    : [];
+
+  const matchHistoryItems = completedMatches.map((m) => {
+    const myTeam =
+      m.teamA.includes(email) ? "teamA" : m.teamB.includes(email) ? "teamB" : null;
+    const result =
+      m.winnerTeam && myTeam
+        ? m.winnerTeam === myTeam
+          ? "win"
+          : "loss"
+        : m.winnerEmail
+          ? m.winnerEmail === email
+            ? "win"
+            : "loss"
+          : "played";
+    const form = recentForm.find((f) => f.matchId === m.id);
+    return {
+      id: m.id,
+      type: "match",
+      title: m.title,
+      date: m.date,
+      result,
+      scoreTeamA: m.scoreTeamA,
+      scoreTeamB: m.scoreTeamB,
+      eloChange: form?.eloChange ?? null,
+      eloAfter: form?.eloAfter ?? null,
+    };
+  });
+
+  const competitionHistoryItems = myCompetitions
+    .filter((c) => c.status === "completed" || c.status === "cancelled")
+    .map((c) => ({
+      id: c.id,
+      type: "competition",
+      title: c.name,
+      date: c.endDate || c.startDate || c.createdAt,
+      result: c.status === "completed" ? "played" : "cancelled",
+      competitionType: c.type,
+    }));
+
+  const recentHistory = [...matchHistoryItems, ...competitionHistoryItems]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 6);
+
+  const recentFormDots = recentForm
+    .slice(0, 5)
+    .map((r) => (String(r.result || "").toLowerCase().startsWith("w") ? "W" : "L"));
+  const todayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
+  const statusLine = user.availabilityDays.includes(todayName)
+    ? "🟢 Available to play today"
+    : "🎾 Looking for games";
+
+  const averageRating = user.averageRating ?? 0;
+  const achievements = [
+    {
+      key: "matches_10",
+      icon: "🔥",
+      label: "10 Matches",
+      desc: "Played 10 matches",
+      earned: totalPlayed >= 10,
+    },
+    {
+      key: "wins_5",
+      icon: "🏆",
+      label: "5 Wins",
+      desc: "Won 5 matches",
+      earned: totalWins >= 5,
+    },
+    {
+      key: "top_rated",
+      icon: "⭐",
+      label: "Top Rated",
+      desc: "4.5+ rating",
+      earned: averageRating >= 4.5,
+    },
+    {
+      key: "verified",
+      icon: "🛡️",
+      label: "Verified",
+      desc: "Identity verified",
+      earned: user.idVerified,
+    },
+    {
+      key: "high_elo",
+      icon: "📈",
+      label: "Rising Star",
+      desc: "Reach 1100+ Elo rating",
+      earned: eloRating >= 1100,
+    },
+  ];
+
+  return res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName || buildDisplayNameFromEmail(user.email),
+      location: user.location,
+      bio: user.bio,
+      photoUrl: user.photoUrl,
+      skillLabel: user.skillLabel || "intermediate",
+      skillLevel: user.skillLevel,
+      skillConfidence: user.skillConfidence,
+      preferredPosition: user.preferredPosition,
+      availabilityDays: user.availabilityDays,
+      availabilityTimes: user.availabilityTimes,
+      travelRadiusKm: user.travelRadiusKm,
+      useCurrentLocation: user.useCurrentLocation,
+      matchTypePreference: user.matchTypePreference,
+      matchFormatPreference: user.matchFormatPreference,
+      tags: user.tags,
+      profileVisibility: user.profileVisibility,
+      notifyInstantPlay: user.notifyInstantPlay,
+      notifyNearbyMatches: user.notifyNearbyMatches,
+      notifyMatchInvites: user.notifyMatchInvites,
+      notifyTournaments: user.notifyTournaments,
+      statusLine,
+      averageRating: averageRating || null,
+      eloRating,
+      idVerified: user.idVerified,
+      photoVerified: user.photoVerified,
+      profileComplete: Boolean(user.profileComplete || (user.bio && user.location)),
+    },
+    stats: {
+      matchesPlayed: totalPlayed,
+      matchesWon: totalWins,
+      matchesLost: totalLosses,
+      winRate,
+      eloRating,
+      eloPeak,
+    },
+    recentFormDots,
+    achievements,
+    trustBadges: {
+      idVerified: user.idVerified,
+      photoVerified: user.photoVerified,
+      topRated: averageRating >= 4.5,
+      reliable: totalWins >= 5,
+    },
+    social: {
+      friends: friends.map((f) => ({
+        id: f.id,
+        email: f.email,
+        fullName: f.fullName || buildDisplayNameFromEmail(f.email),
+        photoUrl: f.photoUrl,
+      })),
+      playedWith: playedWith.map((f) => ({
+        id: f.id,
+        email: f.email,
+        fullName: f.fullName || buildDisplayNameFromEmail(f.email),
+        photoUrl: f.photoUrl,
+      })),
+      friendCount: friendEmails.length,
+    },
+    upcomingMatches,
+    recentHistory,
+  });
 });
 
 usersRouter.get("/:id", async (req, res) => {

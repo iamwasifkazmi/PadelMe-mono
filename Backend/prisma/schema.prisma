@@ -63,8 +63,22 @@ model User {
   sports             String[]  @default([])
   skillLevel         Int?
   skillLabel         String?
+  skillConfidence    String?
+  preferredPosition  String?
+  availabilityDays   String[]  @default([])
+  availabilityTimes  String[]  @default([])
+  travelRadiusKm     Int?
+  useCurrentLocation Boolean   @default(false)
+  matchTypePreference String?
+  matchFormatPreference String?
+  tags               String[]  @default([])
   eloRating          Int       @default(1000)
   profileVisibility  String    @default("public")
+  notifyInstantPlay  Boolean   @default(true)
+  notifyNearbyMatches Boolean  @default(true)
+  notifyMatchInvites Boolean   @default(true)
+  notifyTournaments  Boolean   @default(true)
+  profileComplete    Boolean   @default(false)
   photoVerified      Boolean   @default(false)
   idVerified         Boolean   @default(false)
   averageRating      Float?
