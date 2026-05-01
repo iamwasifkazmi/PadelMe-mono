@@ -19,21 +19,37 @@ matchesRouter.get("/", async (req, res) => {
 });
 matchesRouter.post("/", async (req, res) => {
     const body = req.body;
-    if (!body.title || !body.date || !body.timeLabel || !body.locationName) {
+    if (!body.title || !body.timeLabel || !body.locationName) {
         return res.status(400).json({ error: "Missing required fields" });
     }
+    const isInstant = body.isInstant === true;
+    const parsedDate = body.date ? new Date(body.date) : new Date();
     const host = body.createdByEmail
         ? await prisma.user.findUnique({ where: { email: body.createdByEmail } })
         : null;
+    const maxPlayers = body.maxPlayers || 4;
+    const players = body.createdByEmail ? [body.createdByEmail] : [];
+    const initialStatus = players.length >= maxPlayers ? MatchStatus.full : MatchStatus.open;
     const created = await prisma.match.create({
         data: {
             title: body.title,
-            date: new Date(body.date),
+            date: parsedDate,
             timeLabel: body.timeLabel,
             locationName: body.locationName,
-            maxPlayers: body.maxPlayers || 4,
+            locationAddress: body.locationAddress || undefined,
+            durationMinutes: body.durationMinutes || undefined,
+            notes: body.notes || undefined,
+            visibility: body.visibility || "public",
+            tags: Array.isArray(body.tags) ? body.tags : [],
+            invitedEmails: Array.isArray(body.invitedEmails) ? body.invitedEmails : [],
+            skillLevel: body.skillLevel || undefined,
+            isInstant,
+            maxPlayers,
             matchType: body.matchType || MatchType.doubles,
-            players: body.createdByEmail ? [body.createdByEmail] : [],
+            players,
+            teamA: Array.isArray(body.teamA) ? body.teamA : [],
+            teamB: Array.isArray(body.teamB) ? body.teamB : [],
+            status: initialStatus,
             hostId: host?.id,
         },
     });
@@ -64,6 +80,40 @@ matchesRouter.post("/:id/join", async (req, res) => {
             players,
             status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
         },
+    });
+    return res.json(updated);
+});
+matchesRouter.post("/:id/leave", async (req, res) => {
+    const email = String(req.body.email || "");
+    if (!email)
+        return res.status(400).json({ error: "email is required" });
+    const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+    if (!match)
+        return res.status(404).json({ error: "Match not found" });
+    if (!match.players.includes(email))
+        return res.json(match);
+    const players = match.players.filter((p) => p !== email);
+    const updated = await prisma.match.update({
+        where: { id: req.params.id },
+        data: {
+            players,
+            teamA: match.teamA.filter((p) => p !== email),
+            teamB: match.teamB.filter((p) => p !== email),
+            status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
+        },
+    });
+    return res.json(updated);
+});
+matchesRouter.post("/:id/start", async (req, res) => {
+    const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+    if (!match)
+        return res.status(404).json({ error: "Match not found" });
+    if (match.status !== MatchStatus.open && match.status !== MatchStatus.full) {
+        return res.status(409).json({ error: "Match cannot be started from current status" });
+    }
+    const updated = await prisma.match.update({
+        where: { id: req.params.id },
+        data: { status: MatchStatus.in_progress },
     });
     return res.json(updated);
 });
