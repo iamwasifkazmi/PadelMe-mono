@@ -9,7 +9,6 @@ import { friendsRouter } from "./friends/friends.router.js";
 import { invitesRouter } from "./invites/invites.router.js";
 import { verificationRouter } from "./verification/verification.router.js";
 import { authRouter } from "./auth/auth.router.js";
-import { adminRouter } from "./admin/admin.router.js";
 
 export const apiRouter = Router();
 
@@ -23,4 +22,3 @@ apiRouter.use("/friends", friendsRouter);
 apiRouter.use("/invites", invitesRouter);
 apiRouter.use("/verification", verificationRouter);
 apiRouter.use("/auth", authRouter);
-apiRouter.use("/admin", adminRouter);
