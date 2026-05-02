@@ -216,6 +216,7 @@ authRouter.post("/verify-register-otp", async (req, res) => {
   const token = signToken(updated);
   return res.json({
     token,
+    isNewUser: true,
     user: {
       id: updated.id,
       email: updated.email,
@@ -245,6 +246,7 @@ authRouter.post("/login", async (req, res) => {
   const token = signToken(user);
   return res.json({
     token,
+    isNewUser: false,
     user: {
       id: user.id,
       email: user.email,
@@ -292,6 +294,7 @@ authRouter.post("/google", async (req, res) => {
     typeof payload.name === "string" && payload.name.trim().length >= 2 ? payload.name.trim() : null;
 
   const existing = await prisma.user.findUnique({ where: { email } });
+  const isNewUser = !existing;
   const user = existing
     ? await prisma.user.update({
         where: { email },
@@ -319,6 +322,7 @@ authRouter.post("/google", async (req, res) => {
   const token = signToken(user);
   return res.json({
     token,
+    isNewUser,
     user: {
       id: user.id,
       email: user.email,
