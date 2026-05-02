@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
@@ -8,12 +9,23 @@ import { prisma } from "../../lib/prisma.js";
 const registerSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
   password: z.string().min(8),
-  fullName: z.string().min(2).max(80),
+  fullName: z
+    .string()
+    .max(80)
+    .optional()
+    .transform((s) => {
+      const t = s?.trim();
+      return t && t.length >= 2 ? t : undefined;
+    }),
 });
 
 const loginSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
   password: z.string().min(1),
+});
+
+const googleSignInSchema = z.object({
+  idToken: z.string().min(20),
 });
 
 const forgotSchema = z.object({
@@ -38,7 +50,7 @@ const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "noreply@padelme.app";
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "noreply@mipadel.app";
 const OTP_EXPIRES_MINUTES = Number(process.env.OTP_EXPIRES_MINUTES || 10);
 
 const transporter =
@@ -52,6 +64,17 @@ const transporter =
     : null;
 
 export const authRouter = Router();
+
+const googleOAuthClient = new OAuth2Client();
+
+/** Comma-separated OAuth client IDs whose tokens the backend will accept (web + iOS + Android from Google Cloud Console). */
+function googleTokenAudiences(): string[] {
+  const combined = process.env.GOOGLE_OAUTH_CLIENT_IDS || process.env.GOOGLE_WEB_CLIENT_ID || "";
+  return combined
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 function signToken(user: { id: string; email: string; fullName?: string | null }) {
   return jwt.sign(
@@ -67,10 +90,10 @@ function signToken(user: { id: string; email: string; fullName?: string | null }
 
 async function sendOtpEmail(email: string, code: string, purpose: "registration" | "reset") {
   const isRegistration = purpose === "registration";
-  const subject = isRegistration ? "Verify your PadelMe account" : "PadelMe password reset code";
+  const subject = isRegistration ? "Verify your MiPadel account" : "MiPadel password reset code";
   const text = isRegistration
-    ? `Your PadelMe account verification code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`
-    : `Your PadelMe reset code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`;
+    ? `Your MiPadel account verification code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`
+    : `Your MiPadel reset code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`;
 
   if (!transporter) {
     // eslint-disable-next-line no-console
@@ -83,7 +106,7 @@ async function sendOtpEmail(email: string, code: string, purpose: "registration"
     to: email,
     subject,
     text,
-    html: `<p>Your PadelMe ${isRegistration ? "verification" : "reset"} code is <strong>${code}</strong>.</p><p>It expires in ${OTP_EXPIRES_MINUTES} minutes.</p>`,
+    html: `<p>Your MiPadel ${isRegistration ? "verification" : "reset"} code is <strong>${code}</strong>.</p><p>It expires in ${OTP_EXPIRES_MINUTES} minutes.</p>`,
   });
 }
 
@@ -117,7 +140,7 @@ authRouter.post("/register", async (req, res) => {
         where: { email },
         data: {
           passwordHash,
-          fullName: fullName || existing.fullName,
+          fullName: fullName ?? existing.fullName,
           authProvider: "local",
           isEmailVerified: false,
         },
@@ -125,7 +148,7 @@ authRouter.post("/register", async (req, res) => {
     : await prisma.user.create({
         data: {
           email,
-          fullName,
+          fullName: fullName ?? null,
           passwordHash,
           authProvider: "local",
           isEmailVerified: false,
@@ -218,6 +241,80 @@ authRouter.post("/login", async (req, res) => {
 
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+  const token = signToken(user);
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+    },
+  });
+});
+
+authRouter.post("/google", async (req, res) => {
+  const audiences = googleTokenAudiences();
+  if (audiences.length === 0) {
+    return res.status(503).json({
+      error: "Google sign-in is not configured (set GOOGLE_OAUTH_CLIENT_IDS or GOOGLE_WEB_CLIENT_ID)",
+    });
+  }
+
+  const parsed = googleSignInSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid Google sign-in payload" });
+  }
+
+  const { idToken } = parsed.data;
+  let payload: { email?: string; email_verified?: boolean; name?: string } | undefined;
+  try {
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken,
+      audience: audiences,
+    });
+    payload = ticket.getPayload() || undefined;
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired Google token" });
+  }
+
+  const email = String(payload?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    return res.status(401).json({ error: "Google account has no email" });
+  }
+  if (!payload?.email_verified) {
+    return res.status(401).json({ error: "Google email is not verified" });
+  }
+
+  const fullNameFromGoogle =
+    typeof payload.name === "string" && payload.name.trim().length >= 2 ? payload.name.trim() : null;
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  const user = existing
+    ? await prisma.user.update({
+        where: { email },
+        data: {
+          isEmailVerified: true,
+          fullName:
+            existing.fullName && existing.fullName.trim().length >= 2
+              ? existing.fullName
+              : fullNameFromGoogle ?? existing.fullName,
+          authProvider: existing.authProvider === "local" ? "local" : "google",
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          email,
+          fullName: fullNameFromGoogle,
+          passwordHash: null,
+          authProvider: "google",
+          isEmailVerified: true,
+          location: "Dubai",
+          skillLabel: "intermediate",
+        },
+      });
 
   const token = signToken(user);
   return res.json({

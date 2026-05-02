@@ -85,7 +85,32 @@ instantPlayRouter.post("/join", async (req, res) => {
     return res.json({ status: "matched", matchId: createdMatch.id, requestId: requestRow.id });
   }
 
-  return res.json({ status: "waiting", requestId: requestRow.id });
+  const nearbyMatches = await prisma.match.findMany({
+    where: {
+      status: MatchStatus.open,
+      isInstant: true,
+      matchType: matchType || MatchType.doubles,
+      NOT: { players: { has: userEmail } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 8,
+  });
+
+  const nearbySummary = nearbyMatches.map((m) => ({
+    id: m.id,
+    title: m.title,
+    locationName: m.locationName,
+    playersCount: m.players.length,
+    maxPlayers: m.maxPlayers,
+    timeLabel: m.timeLabel,
+    date: m.date,
+  }));
+
+  return res.json({
+    status: "waiting",
+    requestId: requestRow.id,
+    nearbyMatches: nearbySummary,
+  });
 });
 
 instantPlayRouter.post("/join-match", async (req, res) => {
