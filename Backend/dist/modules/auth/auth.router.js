@@ -79,6 +79,15 @@ function googleTokenAudiences() {
         .map((s) => s.trim())
         .filter(Boolean);
 }
+/** Native Sign in with Apple JWT audience (iOS bundle ID). */
+function appleClientId() {
+    for (const key of ["APPLE_CLIENT_ID", "APPLE_BUNDLE_ID", "IOS_BUNDLE_ID"]) {
+        const v = process.env[key]?.trim();
+        if (v)
+            return v;
+    }
+    return "";
+}
 function signToken(user) {
     return jwt.sign({
         sub: user.id,
@@ -307,7 +316,7 @@ authRouter.post("/google", async (req, res) => {
     });
 });
 authRouter.post("/apple", async (req, res) => {
-    const appleAudience = process.env.APPLE_CLIENT_ID?.trim();
+    const appleAudience = appleClientId();
     if (!appleAudience) {
         return res.status(503).json({
             error: "Apple Sign In is not configured (set APPLE_CLIENT_ID to your iOS bundle ID, e.g. com.mipadel)",

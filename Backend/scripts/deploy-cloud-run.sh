@@ -54,12 +54,19 @@ fi
 
 DEFAULT_APPLE_CLIENT_ID="${APPLE_CLIENT_ID:-com.mipadel}"
 
-echo "==> Merging GOOGLE_OAUTH_CLIENT_IDS and APPLE_CLIENT_ID (existing env vars are preserved)..."
+echo "==> Merging GOOGLE_OAUTH_CLIENT_IDS and APPLE_CLIENT_ID (two steps — avoids gcloud comma/delimiter bugs)..."
+
+# Comma inside GOOGLE value: use alternate delimiter (see gcloud topic escaping). Do not combine with a second key in one flag — it can corrupt names (e.g. ^APPLE_CLIENT_ID).
+gcloud run services update "$SERVICE" \
+  --project="$PROJECT" \
+  --region="$REGION" \
+  --update-env-vars="^!^GOOGLE_OAUTH_CLIENT_IDS=${DEFAULT_GOOGLE_OAUTH_CLIENT_IDS}" \
+  --quiet
 
 gcloud run services update "$SERVICE" \
   --project="$PROJECT" \
   --region="$REGION" \
-  --update-env-vars="^|^GOOGLE_OAUTH_CLIENT_IDS=${DEFAULT_GOOGLE_OAUTH_CLIENT_IDS}^|^APPLE_CLIENT_ID=${DEFAULT_APPLE_CLIENT_ID}" \
+  --update-env-vars="APPLE_CLIENT_ID=${DEFAULT_APPLE_CLIENT_ID}" \
   --quiet
 
 echo "==> Done. Google: Web+iOS client IDs. Apple: APPLE_CLIENT_ID=${DEFAULT_APPLE_CLIENT_ID}"
