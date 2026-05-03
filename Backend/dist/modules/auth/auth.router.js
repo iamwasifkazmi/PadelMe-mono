@@ -5,6 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 import nodemailer from "nodemailer";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
+import { appleEmailVerifiedClaim, verifyAppleIdentityToken } from "../../lib/appleIdToken.js";
 const registerSchema = z.object({
     email: z.string().email().transform((v) => v.toLowerCase()),
     password: z.string().min(8),
@@ -23,6 +24,22 @@ const loginSchema = z.object({
 });
 const googleSignInSchema = z.object({
     idToken: z.string().min(20),
+});
+const appleSignInSchema = z.object({
+    identityToken: z.string().min(20),
+    email: z
+        .string()
+        .email()
+        .transform((v) => v.toLowerCase())
+        .optional(),
+    fullName: z
+        .string()
+        .max(80)
+        .optional()
+        .transform((s) => {
+        const t = s?.trim();
+        return t && t.length >= 2 ? t : undefined;
+    }),
 });
 const forgotSchema = z.object({
     email: z.string().email().transform((v) => v.toLowerCase()),
@@ -287,6 +304,88 @@ authRouter.post("/google", async (req, res) => {
             email: user.email,
             fullName: user.fullName,
         },
+    });
+});
+authRouter.post("/apple", async (req, res) => {
+    const appleAudience = process.env.APPLE_CLIENT_ID?.trim();
+    if (!appleAudience) {
+        return res.status(503).json({
+            error: "Apple Sign In is not configured (set APPLE_CLIENT_ID to your iOS bundle ID, e.g. com.mipadel)",
+        });
+    }
+    const parsed = appleSignInSchema.safeParse(req.body);
+    if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid Apple sign-in payload" });
+    }
+    const { identityToken, email: emailFromClient, fullName: fullNameFromClient } = parsed.data;
+    let applePayload;
+    try {
+        applePayload = await verifyAppleIdentityToken(identityToken, appleAudience);
+    }
+    catch {
+        return res.status(401).json({ error: "Invalid or expired Apple identity token" });
+    }
+    const sub = String(applePayload.sub || "").trim();
+    if (!sub) {
+        return res.status(401).json({ error: "Apple token missing subject" });
+    }
+    const emailFromToken = typeof applePayload.email === "string" && applePayload.email.trim().length > 0
+        ? applePayload.email.trim().toLowerCase()
+        : "";
+    const email = (emailFromToken || emailFromClient || "").trim().toLowerCase();
+    if (email && !appleEmailVerifiedClaim(applePayload.email_verified)) {
+        return res.status(401).json({ error: "Apple email is not verified" });
+    }
+    const fullNameFromToken = typeof applePayload.name === "string" && applePayload.name.trim().length >= 2 ? applePayload.name.trim() : null;
+    const fullNameResolved = fullNameFromClient && fullNameFromClient.trim().length >= 2
+        ? fullNameFromClient.trim()
+        : fullNameFromToken;
+    let existing = await prisma.user.findUnique({ where: { appleSub: sub } });
+    if (!existing && email) {
+        existing = await prisma.user.findUnique({ where: { email } });
+    }
+    if (!existing) {
+        if (!email) {
+            return res.status(400).json({
+                error: "Apple did not return an email for this sign-in. Try again, or remove the app from Apple ID settings and sign in once more to share email.",
+            });
+        }
+        const user = await prisma.user.create({
+            data: {
+                email,
+                appleSub: sub,
+                fullName: fullNameResolved,
+                passwordHash: null,
+                authProvider: "apple",
+                isEmailVerified: true,
+                location: "Dubai",
+                skillLabel: "intermediate",
+            },
+        });
+        const token = signToken(user);
+        return res.json({
+            token,
+            isNewUser: true,
+            user: { id: user.id, email: user.email, fullName: user.fullName },
+        });
+    }
+    const isNewUser = false;
+    const user = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+            appleSub: existing.appleSub ?? sub,
+            isEmailVerified: true,
+            fullName: existing.fullName && existing.fullName.trim().length >= 2
+                ? existing.fullName
+                : fullNameResolved ?? existing.fullName,
+            authProvider: existing.authProvider === "local" ? "local" : "apple",
+        },
+    });
+    const token = signToken(user);
+    return res.json({
+        token,
+        isNewUser,
+        user: { id: user.id, email: user.email, fullName: user.fullName },
     });
 });
 authRouter.post("/forgot-password", async (req, res) => {

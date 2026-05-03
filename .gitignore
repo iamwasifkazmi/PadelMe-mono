@@ -1,2 +1,5 @@
 # Google OAuth downloads contain secrets — keep local only
 assets-to-copy-from/client_secret*.json
+
+# Optional local overrides for Cloud Run deploy (never commit secrets)
+Backend/cloud-run.env

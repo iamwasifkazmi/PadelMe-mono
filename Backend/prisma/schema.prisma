@@ -49,6 +49,7 @@ enum CompetitionStatus {
 model User {
   id                 String    @id @default(cuid())
   email              String    @unique
+  appleSub           String?   @unique
   passwordHash       String?
   authProvider       String    @default("local")
   isEmailVerified    Boolean   @default(false)
