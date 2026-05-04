@@ -150,6 +150,16 @@ model Match {
   winnerEmail       String?
   notes             String?
   hostId            String?
+  /** Players who RSVP'd / confirmed they're playing (subset of `players`). */
+  confirmedPlayerEmails String[] @default([])
+  /** Organiser locked lineups; required before start for doubles (4 players). */
+  teamsLocked       Boolean     @default(false)
+  /** Proposed scores (Base44-style) before organiser confirms. */
+  pendingScoreTeamA String?
+  pendingScoreTeamB String?
+  pendingWinnerTeam String?
+  scoreSubmittedBy  String?
+  scoreConfirmedBy  String?
   host              User?       @relation("MatchHost", fields: [hostId], references: [id])
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
