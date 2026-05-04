@@ -192,7 +192,7 @@ usersRouter.get("/recent-results", async (req, res) => {
   if (forms.length > 0) {
     return res.json(
       forms.map((f) => ({
-        id: f.id,
+        id: f.matchId,
         result: f.result === "win" || f.result === "W" ? "W" : "L",
         elo: f.eloChange ?? 0,
         date: f.matchDate ?? f.createdAt,
