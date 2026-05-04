@@ -11,9 +11,16 @@ import {
 
 export { effectiveTeamsAtStart } from "./matchTeams.js";
 
-/** Base44 structural rules: min roster, doubles lock + 2v2 split, no duplicate team assignment. */
+/** Base44 structural rules: full roster, min roster, doubles lock + 2v2 split, no duplicate team assignment. */
 export function validateMatchStructure(match: Match): { valid: boolean; reason: string } {
   const players = match.players || [];
+  const maxP = match.maxPlayers;
+  if (maxP > 0 && players.length < maxP) {
+    return {
+      valid: false,
+      reason: `Fill the roster before starting (${players.length}/${maxP} players)`,
+    };
+  }
   const doublesStyle = isDoublesStyle(match);
   const { teamA, teamB } = effectiveTeamsAtStart(match);
 

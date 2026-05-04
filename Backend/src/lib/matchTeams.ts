@@ -17,8 +17,16 @@ export function teamsPartitionPlayers(
   return true;
 }
 
+/** Doubles lobby: 2v2, line-ups locked before start. maxPlayers≥4 counts even if DB matchType defaulted to singles. */
 export function isDoublesStyle(match: Pick<Match, "matchType" | "maxPlayers">): boolean {
-  return match.matchType !== MatchType.singles && match.maxPlayers >= 4;
+  if (match.matchType === MatchType.singles && match.maxPlayers <= 2) {
+    return false;
+  }
+  return (
+    match.matchType === MatchType.doubles ||
+    match.matchType === MatchType.mixed_doubles ||
+    match.maxPlayers >= 4
+  );
 }
 
 /** Same team fill logic as `POST /matches/:id/start` (singles: auto 1v1 when unset). */
