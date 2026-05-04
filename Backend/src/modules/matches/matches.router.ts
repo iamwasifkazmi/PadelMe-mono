@@ -170,6 +170,20 @@ matchesRouter.post("/", async (req, res) => {
   return res.status(201).json(await withHostJson(created));
 });
 
+matchesRouter.get("/:id/recent-form", async (req, res) => {
+  const email = String(req.query.email || "").trim();
+  if (!email) return res.status(400).json({ error: "email query is required" });
+  const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!match) return res.status(404).json({ error: "Match not found" });
+  const row = await prisma.playerRecentForm.findFirst({
+    where: {
+      matchId: match.id,
+      userEmail: { equals: email, mode: "insensitive" },
+    },
+  });
+  res.json(row);
+});
+
 matchesRouter.get("/:id", async (req, res) => {
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
@@ -525,15 +539,18 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     winnerTeam,
     submittedBy,
     email,
+    evidenceUrl: evidenceUrlRaw,
   } = req.body as Partial<{
     scoreTeamA: string;
     scoreTeamB: string;
     winnerTeam: string;
     submittedBy: string;
     email: string;
+    evidenceUrl: string;
   }>;
 
   const actor = String(submittedBy || email || "").trim();
+  const evidenceTrim = String(evidenceUrlRaw || "").trim();
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
   if (match.status === MatchStatus.cancelled) {
@@ -541,6 +558,11 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
   }
   if (match.status === MatchStatus.completed) {
     return res.json(match);
+  }
+  if (match.status === MatchStatus.disputed) {
+    return res.status(409).json({
+      error: "Match is disputed. The organiser must reopen it before entering scores.",
+    });
   }
 
   if (!scoreTeamA?.trim() || !scoreTeamB?.trim()) {
@@ -576,6 +598,7 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
         pendingScoreTeamB: null,
         pendingWinnerTeam: null,
         scoreSubmittedBy: null,
+        ...(evidenceTrim ? { evidenceUrl: evidenceTrim } : {}),
       },
     });
     try {
@@ -619,6 +642,7 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
       pendingWinnerTeam: pendingW,
       scoreSubmittedBy: actor,
       status: MatchStatus.pending_validation,
+      evidenceUrl: evidenceTrim || null,
     },
   });
   const hostN = await getHostEmail(match);
@@ -727,6 +751,7 @@ matchesRouter.post("/:id/reject-score", async (req, res) => {
       pendingWinnerTeam: null,
       scoreSubmittedBy: null,
       status: MatchStatus.in_progress,
+      evidenceUrl: null,
     },
   });
   await notifyUser({
@@ -736,6 +761,105 @@ matchesRouter.post("/:id/reject-score", async (req, res) => {
     body: `Your proposed score for "${match.title}" was rejected. Submit again after agreement.`,
     matchId: match.id,
   });
+  return res.json(await withHostJson(updated));
+});
+
+matchesRouter.post("/:id/dispute-score", async (req, res) => {
+  const actor = String(req.body.email || "").trim();
+  const reason = String(req.body.reason || "").trim();
+  if (!actor) return res.status(400).json({ error: "email is required" });
+  if (!reason) return res.status(400).json({ error: "reason is required" });
+  const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!match) return res.status(404).json({ error: "Match not found" });
+  if (
+    match.status !== MatchStatus.awaiting_score &&
+    match.status !== MatchStatus.pending_validation
+  ) {
+    return res.status(409).json({ error: "No pending score to dispute" });
+  }
+  const submitter = match.scoreSubmittedBy;
+  if (!submitter?.trim()) {
+    return res.status(400).json({ error: "No score submitter recorded" });
+  }
+  if (emailsEqual(actor, submitter)) {
+    return res.status(403).json({ error: "You cannot dispute your own submission" });
+  }
+  const hostEmail = await getHostEmail(match);
+  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
+  const isPlayer = playersIncludesCi(match.players, actor);
+  if (!isHost && !isPlayer) {
+    return res.status(403).json({ error: "Only the organiser or a match participant can dispute" });
+  }
+  const reasonPreview =
+    reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
+  const updated = await prisma.match.update({
+    where: { id: req.params.id },
+    data: {
+      pendingScoreTeamA: null,
+      pendingScoreTeamB: null,
+      pendingWinnerTeam: null,
+      scoreSubmittedBy: null,
+      evidenceUrl: null,
+      status: MatchStatus.disputed,
+      scoreDisputeReason: reason,
+      disputedBy: actor,
+      disputedAt: new Date(),
+    },
+  });
+  await notifyUser({
+    userEmail: submitter.trim(),
+    type: "match_score_disputed",
+    title: "Score disputed",
+    body: `Your proposed score for "${match.title}" was disputed (${reasonPreview}). The organiser must reopen the match before a new result can be entered.`,
+    matchId: match.id,
+  });
+  const toAlert = new Set<string>();
+  for (const p of match.players) {
+    const pe = p.trim();
+    if (!emailsEqual(pe, actor) && !emailsEqual(pe, submitter)) toAlert.add(pe);
+  }
+  if (hostEmail && !emailsEqual(hostEmail, actor)) toAlert.add(hostEmail.trim());
+  if (toAlert.size > 0) {
+    await notifyMatchEmails([...toAlert], {
+      type: "match_score_disputed",
+      title: "Score disputed",
+      body: `${actor} disputed the proposed score for "${match.title}". The organiser should review and reopen when ready.`,
+      matchId: match.id,
+    });
+  }
+  return res.json(await withHostJson(updated));
+});
+
+matchesRouter.post("/:id/reopen-dispute", async (req, res) => {
+  const actor = String(req.body.email || "").trim();
+  if (!actor) return res.status(400).json({ error: "email is required" });
+  const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status !== MatchStatus.disputed) {
+    return res.status(409).json({ error: "Match is not disputed" });
+  }
+  const hostEmail = await getHostEmail(match);
+  if (!hostEmail || !emailsEqual(actor, hostEmail)) {
+    return res.status(403).json({ error: "Only the organiser can reopen a disputed match" });
+  }
+  const updated = await prisma.match.update({
+    where: { id: req.params.id },
+    data: {
+      status: MatchStatus.in_progress,
+      scoreDisputeReason: null,
+      disputedBy: null,
+      disputedAt: null,
+    },
+  });
+  const recipients = match.players.filter((p) => !emailsEqual(p, actor));
+  if (recipients.length > 0) {
+    await notifyMatchEmails(recipients, {
+      type: "match_dispute_reopened",
+      title: "Dispute cleared",
+      body: `The organiser reopened "${match.title}". You can enter a new score proposal.`,
+      matchId: match.id,
+    });
+  }
   return res.json(await withHostJson(updated));
 });
 
