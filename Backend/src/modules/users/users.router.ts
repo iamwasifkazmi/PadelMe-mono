@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
+import { distanceKmBetweenUsers } from "../../lib/geo.js";
 
 export const usersRouter = Router();
 
@@ -31,6 +32,14 @@ async function ensureUserByEmail(email: string) {
 
 usersRouter.get("/", async (req, res) => {
   const search = String(req.query.search || "").trim().toLowerCase();
+  const viewerEmail = String(req.query.viewerEmail || "").trim();
+  const viewer = viewerEmail
+    ? await prisma.user.findUnique({
+        where: { email: viewerEmail },
+        select: { locationLat: true, locationLng: true },
+      })
+    : null;
+
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -40,7 +49,18 @@ usersRouter.get("/", async (req, res) => {
         (u.fullName || u.email).toLowerCase().includes(search),
       )
     : users;
-  res.json(filtered);
+
+  const withDistance = filtered.map((u) => ({
+    ...u,
+    distanceKm: distanceKmBetweenUsers(
+      viewer?.locationLat,
+      viewer?.locationLng,
+      u.locationLat,
+      u.locationLng,
+    ),
+  }));
+
+  res.json(withDistance);
 });
 
 usersRouter.get("/me", async (req, res) => {
@@ -59,7 +79,10 @@ usersRouter.patch("/me", async (req, res) => {
   const payload = req.body as Partial<{
     fullName: string;
     bio: string;
-    location: string;
+    location: string | null;
+    locationName: string | null;
+    locationLat: number | null;
+    locationLng: number | null;
     photoUrl: string;
     photoVerified: boolean;
     age: number | null;
@@ -84,13 +107,10 @@ usersRouter.patch("/me", async (req, res) => {
   }>;
 
   try {
-    const updated = await prisma.user.update({
-      where: { email },
-      data: {
-        fullName: payload.fullName ?? existing.fullName ?? undefined,
-        bio: payload.bio ?? existing.bio ?? undefined,
-        location: payload.location ?? existing.location ?? undefined,
-        photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
+    const data: Parameters<typeof prisma.user.update>[0]["data"] = {
+      fullName: payload.fullName ?? existing.fullName ?? undefined,
+      bio: payload.bio ?? existing.bio ?? undefined,
+      photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
         photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
         age: payload.age ?? existing.age ?? undefined,
         gender: payload.gender ?? existing.gender ?? undefined,
@@ -111,7 +131,15 @@ usersRouter.patch("/me", async (req, res) => {
         notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
         notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
         profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
-      },
+    };
+    if ("location" in payload) data.location = payload.location ?? undefined;
+    if ("locationName" in payload) data.locationName = payload.locationName ?? undefined;
+    if ("locationLat" in payload) data.locationLat = payload.locationLat ?? undefined;
+    if ("locationLng" in payload) data.locationLng = payload.locationLng ?? undefined;
+
+    const updated = await prisma.user.update({
+      where: { email },
+      data,
     });
     return res.json(updated);
   } catch (error) {
@@ -120,12 +148,9 @@ usersRouter.patch("/me", async (req, res) => {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       (error.code === "P2022" || error.code === "P2000")
     ) {
-      const fallback = await prisma.user.update({
-        where: { email },
-        data: {
+      const fb: Parameters<typeof prisma.user.update>[0]["data"] = {
           fullName: payload.fullName ?? existing.fullName ?? undefined,
           bio: payload.bio ?? existing.bio ?? undefined,
-          location: payload.location ?? existing.location ?? undefined,
           // In fallback mode we avoid writing potentially incompatible/oversized photo payloads.
           photoUrl:
             error.code === "P2000"
@@ -138,7 +163,15 @@ usersRouter.patch("/me", async (req, res) => {
           skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
           profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
           idVerified: existing.idVerified ?? undefined,
-        },
+      };
+      if ("location" in payload) fb.location = payload.location ?? undefined;
+      if ("locationName" in payload) fb.locationName = payload.locationName ?? undefined;
+      if ("locationLat" in payload) fb.locationLat = payload.locationLat ?? undefined;
+      if ("locationLng" in payload) fb.locationLng = payload.locationLng ?? undefined;
+
+      const fallback = await prisma.user.update({
+        where: { email },
+        data: fb,
       });
       return res.json(fallback);
     }
@@ -356,6 +389,9 @@ usersRouter.get("/profile-summary", async (req, res) => {
       email: user.email,
       fullName: user.fullName || buildDisplayNameFromEmail(user.email),
       location: user.location,
+      locationName: user.locationName,
+      locationLat: user.locationLat,
+      locationLng: user.locationLng,
       bio: user.bio,
       photoUrl: user.photoUrl,
       skillLabel: user.skillLabel || "intermediate",
@@ -379,7 +415,14 @@ usersRouter.get("/profile-summary", async (req, res) => {
       eloRating,
       idVerified: user.idVerified,
       photoVerified: user.photoVerified,
-      profileComplete: Boolean(user.profileComplete || (user.bio && user.location)),
+      profileComplete: Boolean(
+        user.profileComplete ||
+          (user.bio &&
+            user.locationLat != null &&
+            user.locationLng != null &&
+            !Number.isNaN(user.locationLat) &&
+            !Number.isNaN(user.locationLng)),
+      ),
     },
     stats: {
       matchesPlayed: totalPlayed,
@@ -418,7 +461,21 @@ usersRouter.get("/profile-summary", async (req, res) => {
 });
 
 usersRouter.get("/:id", async (req, res) => {
+  const viewerEmail = String(req.query.viewerEmail || "").trim();
+  const viewer = viewerEmail
+    ? await prisma.user.findUnique({
+        where: { email: viewerEmail },
+        select: { locationLat: true, locationLng: true },
+      })
+    : null;
+
   const user = await prisma.user.findUnique({ where: { id: req.params.id } });
   if (!user) return res.status(404).json({ error: "User not found" });
-  return res.json(user);
+  const distanceKm = distanceKmBetweenUsers(
+    viewer?.locationLat,
+    viewer?.locationLng,
+    user.locationLat,
+    user.locationLng,
+  );
+  return res.json({ ...user, distanceKm });
 });

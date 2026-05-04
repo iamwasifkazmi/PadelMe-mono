@@ -27,6 +27,8 @@ matchesRouter.post("/", async (req, res) => {
     timeLabel: string;
     locationName: string;
     locationAddress: string;
+    locationLat: number;
+    locationLng: number;
     durationMinutes: number;
     notes: string;
     visibility: string;
@@ -42,6 +44,11 @@ matchesRouter.post("/", async (req, res) => {
   }>;
   if (!body.title || !body.timeLabel || !body.locationName) {
     return res.status(400).json({ error: "Missing required fields" });
+  }
+  const lat = body.locationLat;
+  const lng = body.locationLng;
+  if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: "locationLat and locationLng are required (exact venue coordinates)" });
   }
   const isInstant = body.isInstant === true;
   const parsedDate = body.date ? new Date(body.date) : new Date();
@@ -61,6 +68,8 @@ matchesRouter.post("/", async (req, res) => {
       timeLabel: body.timeLabel,
       locationName: body.locationName,
       locationAddress: body.locationAddress || undefined,
+      locationLat: lat,
+      locationLng: lng,
       durationMinutes: body.durationMinutes || undefined,
       notes: body.notes || undefined,
       visibility: body.visibility || "public",

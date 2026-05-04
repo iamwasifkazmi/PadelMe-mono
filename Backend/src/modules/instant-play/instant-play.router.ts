@@ -10,12 +10,16 @@ instantPlayRouter.post("/join", async (req, res) => {
     userName,
     matchType = MatchType.doubles,
     locationName,
+    locationLat,
+    locationLng,
     skillLevel = "any",
   } = req.body as Partial<{
     userEmail: string;
     userName: string;
     matchType: MatchType;
     locationName: string;
+    locationLat: number;
+    locationLng: number;
     skillLevel: string;
   }>;
 
@@ -48,6 +52,8 @@ instantPlayRouter.post("/join", async (req, res) => {
       userName,
       skillLevel,
       locationName,
+      locationLat: locationLat ?? null,
+      locationLng: locationLng ?? null,
       matchType: matchType || MatchType.doubles,
       status: "waiting",
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -64,12 +70,18 @@ instantPlayRouter.post("/join", async (req, res) => {
   if (waiting.length >= needed) {
     const selected = waiting.slice(0, needed);
     const emails = selected.map((r) => r.userEmail);
+    const anchor = selected[0];
+    const resolvedName = anchor?.locationName || locationName || "Nearby Court";
+    const resolvedLat = anchor?.locationLat ?? locationLat ?? null;
+    const resolvedLng = anchor?.locationLng ?? locationLng ?? null;
     const createdMatch = await prisma.match.create({
       data: {
         title: "⚡ Instant Padel",
         date: new Date(),
         timeLabel: new Date().toTimeString().slice(0, 5),
-        locationName: locationName || "Nearby Court",
+        locationName: resolvedName,
+        locationLat: resolvedLat,
+        locationLng: resolvedLng,
         skillLevel,
         maxPlayers: needed,
         players: emails,

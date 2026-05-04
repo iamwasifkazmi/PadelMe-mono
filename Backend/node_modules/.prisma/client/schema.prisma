@@ -165,6 +165,8 @@ model Competition {
   visibility      String             @default("public")
   locationName    String?
   locationAddress String?
+  locationLat     Float?
+  locationLng     Float?
   startDate       DateTime?
   endDate         DateTime?
   skillLevel      String?
