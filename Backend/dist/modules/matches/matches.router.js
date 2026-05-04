@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { applyEloAfterCompletedMatch } from "../../lib/applyEloAfterCompletedMatch.js";
 import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
 export const matchesRouter = Router();
 matchesRouter.get("/", async (req, res) => {
@@ -22,6 +23,11 @@ matchesRouter.post("/", async (req, res) => {
     if (!body.title || !body.timeLabel || !body.locationName) {
         return res.status(400).json({ error: "Missing required fields" });
     }
+    const lat = body.locationLat;
+    const lng = body.locationLng;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return res.status(400).json({ error: "locationLat and locationLng are required (exact venue coordinates)" });
+    }
     const isInstant = body.isInstant === true;
     const parsedDate = body.date ? new Date(body.date) : new Date();
     const host = body.createdByEmail
@@ -37,6 +43,8 @@ matchesRouter.post("/", async (req, res) => {
             timeLabel: body.timeLabel,
             locationName: body.locationName,
             locationAddress: body.locationAddress || undefined,
+            locationLat: lat,
+            locationLng: lng,
             durationMinutes: body.durationMinutes || undefined,
             notes: body.notes || undefined,
             visibility: body.visibility || "public",
@@ -122,6 +130,9 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     const match = await prisma.match.findUnique({ where: { id: req.params.id } });
     if (!match)
         return res.status(404).json({ error: "Match not found" });
+    if (match.status === MatchStatus.completed) {
+        return res.json(match);
+    }
     const updated = await prisma.match.update({
         where: { id: req.params.id },
         data: {
@@ -131,6 +142,12 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
             status: MatchStatus.completed,
         },
     });
+    try {
+        await applyEloAfterCompletedMatch(updated);
+    }
+    catch (err) {
+        console.error("[elo] applyEloAfterCompletedMatch failed:", err);
+    }
     return res.json(updated);
 });
 matchesRouter.get("/:id/chat-messages", async (req, res) => {

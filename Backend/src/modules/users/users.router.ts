@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { distanceKmBetweenUsers } from "../../lib/geo.js";
+import { resolveEffectiveElo } from "../../lib/elo.js";
 
 export const usersRouter = Router();
 
@@ -31,8 +32,17 @@ async function ensureUserByEmail(email: string) {
 }
 
 usersRouter.get("/", async (req, res) => {
-  const search = String(req.query.search || "").trim().toLowerCase();
+  const search = String(req.query.search || "").trim();
   const viewerEmail = String(req.query.viewerEmail || "").trim();
+  const rawMaxDist = req.query.maxDistanceKm;
+  let maxDistanceKm: number | undefined;
+  if (rawMaxDist != null && String(rawMaxDist).trim() !== "") {
+    const n = Number(rawMaxDist);
+    if (!Number.isNaN(n) && n > 0) maxDistanceKm = n;
+  }
+  const gender = String(req.query.gender || "").trim().toLowerCase();
+  const skillTier = String(req.query.skillTier || "").trim().toLowerCase();
+
   const viewer = viewerEmail
     ? await prisma.user.findUnique({
         where: { email: viewerEmail },
@@ -40,34 +50,91 @@ usersRouter.get("/", async (req, res) => {
       })
     : null;
 
+  if (
+    maxDistanceKm != null &&
+    viewerEmail &&
+    (viewer == null ||
+      viewer.locationLat == null ||
+      viewer.locationLng == null)
+  ) {
+    return res.json([]);
+  }
+
+  const where: Prisma.UserWhereInput = {};
+
+  if (search) {
+    where.OR = [
+      { fullName: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  if (gender === "male" || gender === "female") {
+    where.gender = { equals: gender, mode: "insensitive" };
+  }
+
+  if (skillTier === "advanced") {
+    where.skillLevel = { gte: 1, lte: 3 };
+  } else if (skillTier === "intermediate") {
+    where.skillLevel = { gte: 4, lte: 6 };
+  } else if (skillTier === "beginner") {
+    where.skillLevel = { gte: 7, lte: 10 };
+  }
+
   const users = await prisma.user.findMany({
+    where,
     orderBy: { createdAt: "desc" },
-    take: 100,
+    take: 200,
   });
-  const filtered = search
-    ? users.filter((u) =>
-        (u.fullName || u.email).toLowerCase().includes(search),
-      )
-    : users;
 
-  const withDistance = filtered.map((u) => ({
-    ...u,
-    distanceKm: distanceKmBetweenUsers(
-      viewer?.locationLat,
-      viewer?.locationLng,
-      u.locationLat,
-      u.locationLng,
-    ),
-  }));
+  const statEmails = users.map((u) => u.email);
+  const playerStatsRows = await prisma.playerStats.findMany({
+    where: { userEmail: { in: statEmails } },
+  });
+  const statsByEmail = Object.fromEntries(
+    playerStatsRows.map((s) => [s.userEmail, s]),
+  );
 
-  res.json(withDistance);
+  let withDistance = users.map((u) => {
+    const ps = statsByEmail[u.email];
+    const stored = ps?.eloRating ?? u.eloRating;
+    const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
+    return {
+      ...u,
+      eloRating,
+      distanceKm: distanceKmBetweenUsers(
+        viewer?.locationLat,
+        viewer?.locationLng,
+        u.locationLat,
+        u.locationLng,
+      ),
+    };
+  });
+
+  if (
+    maxDistanceKm != null &&
+    viewer?.locationLat != null &&
+    viewer?.locationLng != null
+  ) {
+    withDistance = withDistance.filter(
+      (u) =>
+        u.distanceKm != null &&
+        !Number.isNaN(u.distanceKm) &&
+        u.distanceKm <= maxDistanceKm,
+    );
+  }
+
+  res.json(withDistance.slice(0, 100));
 });
 
 usersRouter.get("/me", async (req, res) => {
   const email = String(req.query.email || "");
   if (!email) return res.status(400).json({ error: "email query is required" });
   const user = await ensureUserByEmail(email);
-  return res.json(user);
+  const ps = await prisma.playerStats.findUnique({ where: { userEmail: email } });
+  const stored = ps?.eloRating ?? user.eloRating;
+  const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
+  return res.json({ ...user, eloRating });
 });
 
 usersRouter.patch("/me", async (req, res) => {
@@ -264,8 +331,9 @@ usersRouter.get("/profile-summary", async (req, res) => {
   const totalWins = playerStats?.matchesWon ?? 0;
   const totalLosses = playerStats?.matchesLost ?? 0;
   const winRate = totalPlayed > 0 ? Math.round((totalWins / totalPlayed) * 100) : 0;
-  const eloRating = playerStats?.eloRating ?? user.eloRating ?? 1000;
-  const eloPeak = playerStats?.eloPeak ?? Math.max(eloRating, 1000);
+  const storedElo = playerStats?.eloRating ?? user.eloRating ?? 1000;
+  const eloRating = resolveEffectiveElo(storedElo, playerStats?.lastMatchAt ?? null);
+  const eloPeak = playerStats?.eloPeak ?? Math.max(storedElo, 1000);
 
   const accepted = friendRequests.filter((r) => r.status === "accepted");
   const friendEmails = accepted.map((r) =>
@@ -471,11 +539,14 @@ usersRouter.get("/:id", async (req, res) => {
 
   const user = await prisma.user.findUnique({ where: { id: req.params.id } });
   if (!user) return res.status(404).json({ error: "User not found" });
+  const ps = await prisma.playerStats.findUnique({ where: { userEmail: user.email } });
+  const stored = ps?.eloRating ?? user.eloRating;
+  const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
   const distanceKm = distanceKmBetweenUsers(
     viewer?.locationLat,
     viewer?.locationLng,
     user.locationLat,
     user.locationLng,
   );
-  return res.json({ ...user, distanceKm });
+  return res.json({ ...user, eloRating, distanceKm });
 });

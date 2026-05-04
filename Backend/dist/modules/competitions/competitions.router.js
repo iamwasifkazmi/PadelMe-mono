@@ -13,6 +13,14 @@ competitionsRouter.post("/", async (req, res) => {
     const body = req.body;
     if (!body.name)
         return res.status(400).json({ error: "name is required" });
+    const lat = body.locationLat;
+    const lng = body.locationLng;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return res.status(400).json({ error: "locationLat and locationLng are required (exact venue coordinates)" });
+    }
+    if (!String(body.locationName || "").trim()) {
+        return res.status(400).json({ error: "locationName is required" });
+    }
     const created = await prisma.competition.create({
         data: {
             name: body.name,
@@ -23,6 +31,8 @@ competitionsRouter.post("/", async (req, res) => {
             hostEmail: body.hostEmail || undefined,
             locationName: body.locationName || undefined,
             locationAddress: body.locationAddress || undefined,
+            locationLat: lat,
+            locationLng: lng,
             startDate: body.startDate ? new Date(body.startDate) : undefined,
             endDate: body.endDate ? new Date(body.endDate) : undefined,
             maxPlayers: body.maxPlayers ?? 16,

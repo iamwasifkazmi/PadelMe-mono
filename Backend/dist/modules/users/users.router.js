@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
+import { distanceKmBetweenUsers } from "../../lib/geo.js";
+import { resolveEffectiveElo } from "../../lib/elo.js";
 export const usersRouter = Router();
 function buildDisplayNameFromEmail(email) {
     const baseName = email.split("@")[0] || "Player";
@@ -24,22 +26,87 @@ async function ensureUserByEmail(email) {
     return user;
 }
 usersRouter.get("/", async (req, res) => {
-    const search = String(req.query.search || "").trim().toLowerCase();
+    const search = String(req.query.search || "").trim();
+    const viewerEmail = String(req.query.viewerEmail || "").trim();
+    const rawMaxDist = req.query.maxDistanceKm;
+    let maxDistanceKm;
+    if (rawMaxDist != null && String(rawMaxDist).trim() !== "") {
+        const n = Number(rawMaxDist);
+        if (!Number.isNaN(n) && n > 0)
+            maxDistanceKm = n;
+    }
+    const gender = String(req.query.gender || "").trim().toLowerCase();
+    const skillTier = String(req.query.skillTier || "").trim().toLowerCase();
+    const viewer = viewerEmail
+        ? await prisma.user.findUnique({
+            where: { email: viewerEmail },
+            select: { locationLat: true, locationLng: true },
+        })
+        : null;
+    if (maxDistanceKm != null &&
+        viewerEmail &&
+        (viewer == null ||
+            viewer.locationLat == null ||
+            viewer.locationLng == null)) {
+        return res.json([]);
+    }
+    const where = {};
+    if (search) {
+        where.OR = [
+            { fullName: { contains: search, mode: "insensitive" } },
+            { email: { contains: search, mode: "insensitive" } },
+        ];
+    }
+    if (gender === "male" || gender === "female") {
+        where.gender = { equals: gender, mode: "insensitive" };
+    }
+    if (skillTier === "advanced") {
+        where.skillLevel = { gte: 1, lte: 3 };
+    }
+    else if (skillTier === "intermediate") {
+        where.skillLevel = { gte: 4, lte: 6 };
+    }
+    else if (skillTier === "beginner") {
+        where.skillLevel = { gte: 7, lte: 10 };
+    }
     const users = await prisma.user.findMany({
+        where,
         orderBy: { createdAt: "desc" },
-        take: 100,
+        take: 200,
     });
-    const filtered = search
-        ? users.filter((u) => (u.fullName || u.email).toLowerCase().includes(search))
-        : users;
-    res.json(filtered);
+    const statEmails = users.map((u) => u.email);
+    const playerStatsRows = await prisma.playerStats.findMany({
+        where: { userEmail: { in: statEmails } },
+    });
+    const statsByEmail = Object.fromEntries(playerStatsRows.map((s) => [s.userEmail, s]));
+    let withDistance = users.map((u) => {
+        const ps = statsByEmail[u.email];
+        const stored = ps?.eloRating ?? u.eloRating;
+        const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
+        return {
+            ...u,
+            eloRating,
+            distanceKm: distanceKmBetweenUsers(viewer?.locationLat, viewer?.locationLng, u.locationLat, u.locationLng),
+        };
+    });
+    if (maxDistanceKm != null &&
+        viewer?.locationLat != null &&
+        viewer?.locationLng != null) {
+        withDistance = withDistance.filter((u) => u.distanceKm != null &&
+            !Number.isNaN(u.distanceKm) &&
+            u.distanceKm <= maxDistanceKm);
+    }
+    res.json(withDistance.slice(0, 100));
 });
 usersRouter.get("/me", async (req, res) => {
     const email = String(req.query.email || "");
     if (!email)
         return res.status(400).json({ error: "email query is required" });
     const user = await ensureUserByEmail(email);
-    return res.json(user);
+    const ps = await prisma.playerStats.findUnique({ where: { userEmail: email } });
+    const stored = ps?.eloRating ?? user.eloRating;
+    const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
+    return res.json({ ...user, eloRating });
 });
 usersRouter.patch("/me", async (req, res) => {
     const email = String(req.body.email || "");
@@ -50,34 +117,42 @@ usersRouter.patch("/me", async (req, res) => {
         return res.status(404).json({ error: "User not found" });
     const payload = req.body;
     try {
+        const data = {
+            fullName: payload.fullName ?? existing.fullName ?? undefined,
+            bio: payload.bio ?? existing.bio ?? undefined,
+            photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
+            photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+            age: payload.age ?? existing.age ?? undefined,
+            gender: payload.gender ?? existing.gender ?? undefined,
+            skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
+            skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
+            skillConfidence: payload.skillConfidence ?? existing.skillConfidence ?? undefined,
+            preferredPosition: payload.preferredPosition ?? existing.preferredPosition ?? undefined,
+            availabilityDays: payload.availabilityDays ?? existing.availabilityDays ?? undefined,
+            availabilityTimes: payload.availabilityTimes ?? existing.availabilityTimes ?? undefined,
+            travelRadiusKm: payload.travelRadiusKm ?? existing.travelRadiusKm ?? undefined,
+            useCurrentLocation: payload.useCurrentLocation ?? existing.useCurrentLocation ?? undefined,
+            matchTypePreference: payload.matchTypePreference ?? existing.matchTypePreference ?? undefined,
+            matchFormatPreference: payload.matchFormatPreference ?? existing.matchFormatPreference ?? undefined,
+            tags: payload.tags ?? existing.tags ?? undefined,
+            profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
+            notifyInstantPlay: payload.notifyInstantPlay ?? existing.notifyInstantPlay ?? undefined,
+            notifyNearbyMatches: payload.notifyNearbyMatches ?? existing.notifyNearbyMatches ?? undefined,
+            notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
+            notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
+            profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
+        };
+        if ("location" in payload)
+            data.location = payload.location ?? undefined;
+        if ("locationName" in payload)
+            data.locationName = payload.locationName ?? undefined;
+        if ("locationLat" in payload)
+            data.locationLat = payload.locationLat ?? undefined;
+        if ("locationLng" in payload)
+            data.locationLng = payload.locationLng ?? undefined;
         const updated = await prisma.user.update({
             where: { email },
-            data: {
-                fullName: payload.fullName ?? existing.fullName ?? undefined,
-                bio: payload.bio ?? existing.bio ?? undefined,
-                location: payload.location ?? existing.location ?? undefined,
-                photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
-                photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
-                age: payload.age ?? existing.age ?? undefined,
-                gender: payload.gender ?? existing.gender ?? undefined,
-                skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
-                skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
-                skillConfidence: payload.skillConfidence ?? existing.skillConfidence ?? undefined,
-                preferredPosition: payload.preferredPosition ?? existing.preferredPosition ?? undefined,
-                availabilityDays: payload.availabilityDays ?? existing.availabilityDays ?? undefined,
-                availabilityTimes: payload.availabilityTimes ?? existing.availabilityTimes ?? undefined,
-                travelRadiusKm: payload.travelRadiusKm ?? existing.travelRadiusKm ?? undefined,
-                useCurrentLocation: payload.useCurrentLocation ?? existing.useCurrentLocation ?? undefined,
-                matchTypePreference: payload.matchTypePreference ?? existing.matchTypePreference ?? undefined,
-                matchFormatPreference: payload.matchFormatPreference ?? existing.matchFormatPreference ?? undefined,
-                tags: payload.tags ?? existing.tags ?? undefined,
-                profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
-                notifyInstantPlay: payload.notifyInstantPlay ?? existing.notifyInstantPlay ?? undefined,
-                notifyNearbyMatches: payload.notifyNearbyMatches ?? existing.notifyNearbyMatches ?? undefined,
-                notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
-                notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
-                profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
-            },
+            data,
         });
         return res.json(updated);
     }
@@ -85,24 +160,32 @@ usersRouter.patch("/me", async (req, res) => {
         // If DB schema is behind or a field payload is too large, fallback to legacy-safe update.
         if (error instanceof Prisma.PrismaClientKnownRequestError &&
             (error.code === "P2022" || error.code === "P2000")) {
+            const fb = {
+                fullName: payload.fullName ?? existing.fullName ?? undefined,
+                bio: payload.bio ?? existing.bio ?? undefined,
+                // In fallback mode we avoid writing potentially incompatible/oversized photo payloads.
+                photoUrl: error.code === "P2000"
+                    ? existing.photoUrl ?? undefined
+                    : payload.photoUrl ?? existing.photoUrl ?? undefined,
+                photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+                age: payload.age ?? existing.age ?? undefined,
+                gender: payload.gender ?? existing.gender ?? undefined,
+                skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
+                skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
+                profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
+                idVerified: existing.idVerified ?? undefined,
+            };
+            if ("location" in payload)
+                fb.location = payload.location ?? undefined;
+            if ("locationName" in payload)
+                fb.locationName = payload.locationName ?? undefined;
+            if ("locationLat" in payload)
+                fb.locationLat = payload.locationLat ?? undefined;
+            if ("locationLng" in payload)
+                fb.locationLng = payload.locationLng ?? undefined;
             const fallback = await prisma.user.update({
                 where: { email },
-                data: {
-                    fullName: payload.fullName ?? existing.fullName ?? undefined,
-                    bio: payload.bio ?? existing.bio ?? undefined,
-                    location: payload.location ?? existing.location ?? undefined,
-                    // In fallback mode we avoid writing potentially incompatible/oversized photo payloads.
-                    photoUrl: error.code === "P2000"
-                        ? existing.photoUrl ?? undefined
-                        : payload.photoUrl ?? existing.photoUrl ?? undefined,
-                    photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
-                    age: payload.age ?? existing.age ?? undefined,
-                    gender: payload.gender ?? existing.gender ?? undefined,
-                    skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
-                    skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
-                    profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
-                    idVerified: existing.idVerified ?? undefined,
-                },
+                data: fb,
             });
             return res.json(fallback);
         }
@@ -120,7 +203,7 @@ usersRouter.get("/recent-results", async (req, res) => {
     });
     if (forms.length > 0) {
         return res.json(forms.map((f) => ({
-            id: f.id,
+            id: f.matchId,
             result: f.result === "win" || f.result === "W" ? "W" : "L",
             elo: f.eloChange ?? 0,
             date: f.matchDate ?? f.createdAt,
@@ -184,8 +267,9 @@ usersRouter.get("/profile-summary", async (req, res) => {
     const totalWins = playerStats?.matchesWon ?? 0;
     const totalLosses = playerStats?.matchesLost ?? 0;
     const winRate = totalPlayed > 0 ? Math.round((totalWins / totalPlayed) * 100) : 0;
-    const eloRating = playerStats?.eloRating ?? user.eloRating ?? 1000;
-    const eloPeak = playerStats?.eloPeak ?? Math.max(eloRating, 1000);
+    const storedElo = playerStats?.eloRating ?? user.eloRating ?? 1000;
+    const eloRating = resolveEffectiveElo(storedElo, playerStats?.lastMatchAt ?? null);
+    const eloPeak = playerStats?.eloPeak ?? Math.max(storedElo, 1000);
     const accepted = friendRequests.filter((r) => r.status === "accepted");
     const friendEmails = accepted.map((r) => r.requesterEmail === email ? r.recipientEmail : r.requesterEmail);
     const friends = friendEmails.length
@@ -293,6 +377,9 @@ usersRouter.get("/profile-summary", async (req, res) => {
             email: user.email,
             fullName: user.fullName || buildDisplayNameFromEmail(user.email),
             location: user.location,
+            locationName: user.locationName,
+            locationLat: user.locationLat,
+            locationLng: user.locationLng,
             bio: user.bio,
             photoUrl: user.photoUrl,
             skillLabel: user.skillLabel || "intermediate",
@@ -316,7 +403,12 @@ usersRouter.get("/profile-summary", async (req, res) => {
             eloRating,
             idVerified: user.idVerified,
             photoVerified: user.photoVerified,
-            profileComplete: Boolean(user.profileComplete || (user.bio && user.location)),
+            profileComplete: Boolean(user.profileComplete ||
+                (user.bio &&
+                    user.locationLat != null &&
+                    user.locationLng != null &&
+                    !Number.isNaN(user.locationLat) &&
+                    !Number.isNaN(user.locationLng))),
         },
         stats: {
             matchesPlayed: totalPlayed,
@@ -354,8 +446,19 @@ usersRouter.get("/profile-summary", async (req, res) => {
     });
 });
 usersRouter.get("/:id", async (req, res) => {
+    const viewerEmail = String(req.query.viewerEmail || "").trim();
+    const viewer = viewerEmail
+        ? await prisma.user.findUnique({
+            where: { email: viewerEmail },
+            select: { locationLat: true, locationLng: true },
+        })
+        : null;
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user)
         return res.status(404).json({ error: "User not found" });
-    return res.json(user);
+    const ps = await prisma.playerStats.findUnique({ where: { userEmail: user.email } });
+    const stored = ps?.eloRating ?? user.eloRating;
+    const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
+    const distanceKm = distanceKmBetweenUsers(viewer?.locationLat, viewer?.locationLng, user.locationLat, user.locationLng);
+    return res.json({ ...user, eloRating, distanceKm });
 });

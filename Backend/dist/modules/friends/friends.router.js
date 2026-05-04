@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
+import { distanceKmBetweenUsers } from "../../lib/geo.js";
 export const friendsRouter = Router();
 friendsRouter.get("/", async (req, res) => {
     const email = String(req.query.email || "");
@@ -19,7 +20,15 @@ friendsRouter.get("/", async (req, res) => {
             where: { email: { in: friendEmails } },
         })
         : [];
-    res.json({ friends, requests });
+    const viewer = await prisma.user.findUnique({
+        where: { email },
+        select: { locationLat: true, locationLng: true },
+    });
+    const friendsWithDistance = friends.map((f) => ({
+        ...f,
+        distanceKm: distanceKmBetweenUsers(viewer?.locationLat, viewer?.locationLng, f.locationLat, f.locationLng),
+    }));
+    res.json({ friends: friendsWithDistance, requests });
 });
 friendsRouter.post("/requests", async (req, res) => {
     const requesterEmail = String(req.body.requesterEmail || "");

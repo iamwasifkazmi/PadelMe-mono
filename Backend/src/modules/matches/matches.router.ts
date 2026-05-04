@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { applyEloAfterCompletedMatch } from "../../lib/applyEloAfterCompletedMatch.js";
 import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
 
 export const matchesRouter = Router();
@@ -157,6 +158,9 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
   }>;
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.completed) {
+    return res.json(match);
+  }
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: {
@@ -166,6 +170,11 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
       status: MatchStatus.completed,
     },
   });
+  try {
+    await applyEloAfterCompletedMatch(updated);
+  } catch (err) {
+    console.error("[elo] applyEloAfterCompletedMatch failed:", err);
+  }
   return res.json(updated);
 });
 

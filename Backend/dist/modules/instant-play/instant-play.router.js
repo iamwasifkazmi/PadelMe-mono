@@ -3,7 +3,7 @@ import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 export const instantPlayRouter = Router();
 instantPlayRouter.post("/join", async (req, res) => {
-    const { userEmail, userName, matchType = MatchType.doubles, locationName, skillLevel = "any", } = req.body;
+    const { userEmail, userName, matchType = MatchType.doubles, locationName, locationLat, locationLng, skillLevel = "any", } = req.body;
     if (!userEmail)
         return res.status(400).json({ error: "userEmail is required" });
     const openInstant = await prisma.match.findFirst({
@@ -31,6 +31,8 @@ instantPlayRouter.post("/join", async (req, res) => {
             userName,
             skillLevel,
             locationName,
+            locationLat: locationLat ?? null,
+            locationLng: locationLng ?? null,
             matchType: matchType || MatchType.doubles,
             status: "waiting",
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -45,12 +47,18 @@ instantPlayRouter.post("/join", async (req, res) => {
     if (waiting.length >= needed) {
         const selected = waiting.slice(0, needed);
         const emails = selected.map((r) => r.userEmail);
+        const anchor = selected[0];
+        const resolvedName = anchor?.locationName || locationName || "Nearby Court";
+        const resolvedLat = anchor?.locationLat ?? locationLat ?? null;
+        const resolvedLng = anchor?.locationLng ?? locationLng ?? null;
         const createdMatch = await prisma.match.create({
             data: {
                 title: "⚡ Instant Padel",
                 date: new Date(),
                 timeLabel: new Date().toTimeString().slice(0, 5),
-                locationName: locationName || "Nearby Court",
+                locationName: resolvedName,
+                locationLat: resolvedLat,
+                locationLng: resolvedLng,
                 skillLevel,
                 maxPlayers: needed,
                 players: emails,
