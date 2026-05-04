@@ -4,11 +4,18 @@ import { prisma } from "../../lib/prisma.js";
 
 export const instantPlayRouter = Router();
 
+function coerceMatchType(raw: unknown): MatchType {
+  const s = String(raw ?? "").toLowerCase();
+  if (s === "singles") return MatchType.singles;
+  if (s === "mixed" || s === "mixed_doubles") return MatchType.mixed_doubles;
+  return MatchType.doubles;
+}
+
 instantPlayRouter.post("/join", async (req, res) => {
   const {
     userEmail,
     userName,
-    matchType = MatchType.doubles,
+    matchType: matchTypeRaw,
     locationName,
     locationLat,
     locationLng,
@@ -16,12 +23,14 @@ instantPlayRouter.post("/join", async (req, res) => {
   } = req.body as Partial<{
     userEmail: string;
     userName: string;
-    matchType: MatchType;
+    matchType: unknown;
     locationName: string;
     locationLat: number;
     locationLng: number;
     skillLevel: string;
   }>;
+
+  const matchType = coerceMatchType(matchTypeRaw);
 
   if (!userEmail) return res.status(400).json({ error: "userEmail is required" });
 
@@ -29,7 +38,7 @@ instantPlayRouter.post("/join", async (req, res) => {
     where: {
       status: MatchStatus.open,
       isInstant: true,
-      matchType: matchType || MatchType.doubles,
+      matchType,
     },
     orderBy: { createdAt: "asc" },
   });
@@ -54,14 +63,14 @@ instantPlayRouter.post("/join", async (req, res) => {
       locationName,
       locationLat: locationLat ?? null,
       locationLng: locationLng ?? null,
-      matchType: matchType || MatchType.doubles,
+      matchType,
       status: "waiting",
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
     },
   });
 
   const waiting = await prisma.instantPlayRequest.findMany({
-    where: { status: "waiting", matchType: matchType || MatchType.doubles },
+    where: { status: "waiting", matchType },
     orderBy: { createdAt: "asc" },
     take: 4,
   });
@@ -87,7 +96,7 @@ instantPlayRouter.post("/join", async (req, res) => {
         players: emails,
         status: MatchStatus.open,
         isInstant: true,
-        matchType: matchType || MatchType.doubles,
+        matchType,
       },
     });
     await prisma.instantPlayRequest.updateMany({
@@ -101,7 +110,7 @@ instantPlayRouter.post("/join", async (req, res) => {
     where: {
       status: MatchStatus.open,
       isInstant: true,
-      matchType: matchType || MatchType.doubles,
+      matchType,
       NOT: { players: { has: userEmail } },
     },
     orderBy: { createdAt: "desc" },
