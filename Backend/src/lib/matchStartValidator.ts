@@ -1,23 +1,18 @@
 import type { Match } from "@prisma/client";
-import { isDoublesStyle, teamsPartitionPlayers } from "./matchTeams.js";
+import {
+  effectiveTeamsAtStart,
+  isDoublesStyle,
+  teamsPartitionPlayers,
+} from "./matchTeams.js";
+import {
+  type MatchEligibilityProfile,
+  validateRosterEligibility,
+} from "./matchEligibility.js";
 
-/** Same team fill logic as `POST /matches/:id/start` (singles: auto 1v1 when unset). */
-export function effectiveTeamsAtStart(match: Match): { teamA: string[]; teamB: string[] } {
-  let teamA = [...match.teamA];
-  let teamB = [...match.teamB];
-  if (
-    match.players.length === 2 &&
-    !isDoublesStyle(match) &&
-    (teamA.length === 0 || teamB.length === 0)
-  ) {
-    teamA = [match.players[0]];
-    teamB = [match.players[1]];
-  }
-  return { teamA, teamB };
-}
+export { effectiveTeamsAtStart } from "./matchTeams.js";
 
-/** Base44-style rules: min roster, doubles lock + 2v2 split, no duplicate team assignment. */
-export function validateMatchStart(match: Match): { valid: boolean; reason: string } {
+/** Base44 structural rules: min roster, doubles lock + 2v2 split, no duplicate team assignment. */
+export function validateMatchStructure(match: Match): { valid: boolean; reason: string } {
   const players = match.players || [];
   const doublesStyle = isDoublesStyle(match);
   const { teamA, teamB } = effectiveTeamsAtStart(match);
@@ -66,5 +61,17 @@ export function validateMatchStart(match: Match): { valid: boolean; reason: stri
     }
   }
 
+  return { valid: true, reason: "" };
+}
+
+/** Full Base44-style validation including roster eligibility (requires loaded user profiles). */
+export function validateMatchStart(
+  match: Match,
+  rosterProfiles: Map<string, MatchEligibilityProfile>,
+): { valid: boolean; reason: string } {
+  const structural = validateMatchStructure(match);
+  if (!structural.valid) return structural;
+  const roster = validateRosterEligibility(match, rosterProfiles);
+  if (!roster.valid) return roster;
   return { valid: true, reason: "" };
 }

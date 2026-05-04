@@ -7,10 +7,18 @@ import {
   inferWinnerTeam,
   isDoublesStyle,
   teamsPartitionPlayers,
+  effectiveTeamsAtStart,
 } from "../../lib/matchTeams.js";
-import { effectiveTeamsAtStart, validateMatchStart } from "../../lib/matchStartValidator.js";
+import { validateMatchStart } from "../../lib/matchStartValidator.js";
+import {
+  playerMeetsMatchEligibility,
+  userToEligibilityProfile,
+  stubProfileForEmail,
+  type MatchEligibilityProfile,
+} from "../../lib/matchEligibility.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
+import { notifyMatchEmails, notifyUser } from "../../lib/matchNotifications.js";
 
 export const matchesRouter = Router();
 
@@ -25,6 +33,42 @@ async function getHostEmail(match: { hostId: string | null }): Promise<string | 
 
 function emailsEqual(a: string, b: string) {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function playersIncludesCi(players: string[], email: string): boolean {
+  return players.some((p) => emailsEqual(p, email));
+}
+
+function matchStartDateTime(match: { date: Date; timeLabel: string }): Date {
+  const dt = new Date(match.date);
+  const parts = match.timeLabel.split(":");
+  const h = Number.parseInt(parts[0] || "0", 10);
+  const m = Number.parseInt(parts[1] || "0", 10);
+  dt.setHours(h, m, 0, 0);
+  return dt;
+}
+
+async function rosterProfileMap(
+  playerEmails: string[],
+): Promise<Map<string, MatchEligibilityProfile>> {
+  if (!playerEmails.length) return new Map();
+  const users = await prisma.user.findMany({
+    where: {
+      OR: playerEmails.map((e) => ({
+        email: { equals: e, mode: "insensitive" as const },
+      })),
+    },
+  });
+  const map = new Map<string, MatchEligibilityProfile>();
+  for (const u of users) {
+    map.set(u.email.trim().toLowerCase(), userToEligibilityProfile(u));
+  }
+  return map;
+}
+
+async function withHostJson(match: Parameters<typeof getHostEmail>[0] & { id: string }) {
+  const hostEmail = await getHostEmail(match);
+  return { ...match, hostEmail };
 }
 
 matchesRouter.get("/", async (req, res) => {
@@ -63,6 +107,13 @@ matchesRouter.post("/", async (req, res) => {
     createdByEmail: string;
     teamA: string[];
     teamB: string[];
+    genderRequirement: string;
+    ageMin: number;
+    ageMax: number;
+    skillRangeMin: number;
+    skillRangeMax: number;
+    minRatingThreshold: number;
+    verificationRequirement: string;
   }>;
   if (!body.title || !body.timeLabel || !body.locationName) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -107,9 +158,16 @@ matchesRouter.post("/", async (req, res) => {
       teamB: Array.isArray(body.teamB) ? body.teamB : [],
       status: initialStatus,
       hostId: host?.id,
+      genderRequirement: body.genderRequirement ?? "any",
+      ageMin: typeof body.ageMin === "number" ? body.ageMin : undefined,
+      ageMax: typeof body.ageMax === "number" ? body.ageMax : undefined,
+      skillRangeMin: typeof body.skillRangeMin === "number" ? body.skillRangeMin : undefined,
+      skillRangeMax: typeof body.skillRangeMax === "number" ? body.skillRangeMax : undefined,
+      minRatingThreshold: typeof body.minRatingThreshold === "number" ? body.minRatingThreshold : undefined,
+      verificationRequirement: body.verificationRequirement ?? "none",
     },
   });
-  return res.status(201).json(created);
+  return res.status(201).json(await withHostJson(created));
 });
 
 matchesRouter.get("/:id", async (req, res) => {
@@ -120,71 +178,158 @@ matchesRouter.get("/:id", async (req, res) => {
 });
 
 matchesRouter.post("/:id/join", async (req, res) => {
-  const email = String(req.body.email || "");
+  const email = String(req.body.email || "").trim();
+  const team = req.body.team as "a" | "b" | undefined;
   if (!email) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
-  if (match.players.includes(email)) return res.json(match);
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
+  if (match.visibility === "invite_only") {
+    const hostEmail = await getHostEmail(match);
+    const allowed =
+      (hostEmail && emailsEqual(hostEmail, email)) ||
+      match.invitedEmails.some((e) => emailsEqual(e, email)) ||
+      playersIncludesCi(match.players, email);
+    if (!allowed) {
+      return res.status(403).json({ error: "This match is invite-only" });
+    }
+  }
+  if (playersIncludesCi(match.players, email)) {
+    const m = await prisma.match.findUnique({ where: { id: req.params.id } });
+    return res.json(await withHostJson(m!));
+  }
   if (match.players.length >= match.maxPlayers) {
     return res.status(409).json({ error: "Match is full" });
   }
+
+  const joiner = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+  });
+  const prof = joiner ? userToEligibilityProfile(joiner) : stubProfileForEmail(email);
+  const elig = playerMeetsMatchEligibility(match, prof);
+  if (!elig.ok) {
+    return res.status(403).json({ error: elig.reason });
+  }
+
+  let teamA = [...match.teamA];
+  let teamB = [...match.teamB];
+  if (isDoublesStyle(match) && !match.teamsLocked && match.maxPlayers >= 4) {
+    if (team !== "a" && team !== "b") {
+      return res.status(400).json({ error: "Choose team A or B for this doubles match" });
+    }
+    if (team === "a") teamA = [...teamA, email];
+    else teamB = [...teamB, email];
+  }
+
   const players = [...match.players, email];
-  const confirmedPlayerEmails = match.confirmedPlayerEmails.includes(email)
+  const confirmedPlayerEmails = match.confirmedPlayerEmails.some((e) => emailsEqual(e, email))
     ? match.confirmedPlayerEmails
     : [...match.confirmedPlayerEmails, email];
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: {
       players,
+      teamA,
+      teamB,
       confirmedPlayerEmails,
       status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
     },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/leave", async (req, res) => {
-  const email = String(req.body.email || "");
+  const email = String(req.body.email || "").trim();
   if (!email) return res.status(400).json({ error: "email is required" });
 
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
-  if (!match.players.includes(email)) return res.json(match);
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
+  if (!playersIncludesCi(match.players, email)) {
+    return res.json(await withHostJson(match));
+  }
 
-  const players = match.players.filter((p) => p !== email);
-  const confirmedPlayerEmails = match.confirmedPlayerEmails.filter((e) => e !== email);
+  const startDt = matchStartDateTime(match);
+  const diffMs = startDt.getTime() - Date.now();
+  const lateWithdrawal = diffMs > 0 && diffMs < 2 * 60 * 60 * 1000;
+  if (lateWithdrawal) {
+    const stats = await prisma.playerStats.findFirst({
+      where: { userEmail: { equals: email, mode: "insensitive" } },
+    });
+    if (stats) {
+      await prisma.playerStats.update({
+        where: { id: stats.id },
+        data: { reliabilityScore: Math.max(0, stats.reliabilityScore - 5) },
+      });
+    }
+  }
+
+  const players = match.players.filter((p) => !emailsEqual(p, email));
+  const confirmedPlayerEmails = match.confirmedPlayerEmails.filter((e) => !emailsEqual(e, email));
   let teamsLocked = match.teamsLocked;
-  if (match.teamA.includes(email) || match.teamB.includes(email)) {
+  if (match.teamA.some((p) => emailsEqual(p, email)) || match.teamB.some((p) => emailsEqual(p, email))) {
     teamsLocked = false;
   }
+  const wasFull = match.status === MatchStatus.full;
+  const hostEmailLeave = await getHostEmail(match);
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: {
       players,
       confirmedPlayerEmails,
-      teamA: match.teamA.filter((p) => p !== email),
-      teamB: match.teamB.filter((p) => p !== email),
+      teamA: match.teamA.filter((p) => !emailsEqual(p, email)),
+      teamB: match.teamB.filter((p) => !emailsEqual(p, email)),
       teamsLocked,
+      replacementNeeded: true,
       status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
     },
   });
-  return res.json(updated);
+  if (hostEmailLeave && !emailsEqual(email, hostEmailLeave)) {
+    await notifyUser({
+      userEmail: hostEmailLeave,
+      type: "match_player_left",
+      title: "Player has withdrawn",
+      body: `${email} left "${match.title}". A slot may be open.`,
+      matchId: match.id,
+    });
+  }
+  if (wasFull && hostEmailLeave) {
+    const recipients = match.players.filter(
+      (p) => !emailsEqual(p, email) && !emailsEqual(p, hostEmailLeave),
+    );
+    await notifyMatchEmails(recipients, {
+      type: "match_player_left",
+      title: "A player has left",
+      body: `${email} left "${match.title}". The organiser may be finding a replacement.`,
+      matchId: match.id,
+    });
+  }
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/confirm", async (req, res) => {
-  const email = String(req.body.email || "");
+  const email = String(req.body.email || "").trim();
   if (!email) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
-  if (!match.players.includes(email)) {
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
+  if (!playersIncludesCi(match.players, email)) {
     return res.status(400).json({ error: "Only listed players can confirm attendance" });
   }
-  if (match.confirmedPlayerEmails.includes(email)) return res.json(match);
+  if (match.confirmedPlayerEmails.some((e) => emailsEqual(e, email))) {
+    return res.json(await withHostJson(match));
+  }
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: { confirmedPlayerEmails: [...match.confirmedPlayerEmails, email] },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/teams", async (req, res) => {
@@ -196,6 +341,9 @@ matchesRouter.post("/:id/teams", async (req, res) => {
   }
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
   const hostEmail = await getHostEmail(match);
   if (!hostEmail || !emailsEqual(actor, hostEmail)) {
     return res.status(403).json({ error: "Only the organiser can set teams" });
@@ -210,7 +358,7 @@ matchesRouter.post("/:id/teams", async (req, res) => {
     where: { id: req.params.id },
     data: { teamA, teamB },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/balance-teams", async (req, res) => {
@@ -218,6 +366,9 @@ matchesRouter.post("/:id/balance-teams", async (req, res) => {
   if (!actor) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
   const hostEmail = await getHostEmail(match);
   if (!hostEmail || !emailsEqual(actor, hostEmail)) {
     return res.status(403).json({ error: "Only the organiser can auto-balance teams" });
@@ -243,7 +394,7 @@ matchesRouter.post("/:id/balance-teams", async (req, res) => {
     where: { id: req.params.id },
     data: { teamA, teamB },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/lock-teams", async (req, res) => {
@@ -251,6 +402,9 @@ matchesRouter.post("/:id/lock-teams", async (req, res) => {
   if (!actor) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
   const hostEmail = await getHostEmail(match);
   if (!hostEmail || !emailsEqual(actor, hostEmail)) {
     return res.status(403).json({ error: "Only the organiser can lock teams" });
@@ -267,7 +421,7 @@ matchesRouter.post("/:id/lock-teams", async (req, res) => {
     where: { id: req.params.id },
     data: { teamsLocked: true },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/unlock-teams", async (req, res) => {
@@ -275,6 +429,9 @@ matchesRouter.post("/:id/unlock-teams", async (req, res) => {
   if (!actor) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
   if (match.status !== MatchStatus.open && match.status !== MatchStatus.full) {
     return res.status(409).json({ error: "Teams can only be unlocked before the match starts" });
   }
@@ -286,7 +443,37 @@ matchesRouter.post("/:id/unlock-teams", async (req, res) => {
     where: { id: req.params.id },
     data: { teamsLocked: false },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
+});
+
+matchesRouter.post("/:id/cancel", async (req, res) => {
+  const actor = String(req.body.email || "").trim();
+  if (!actor) return res.status(400).json({ error: "email is required" });
+  const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status !== MatchStatus.open && match.status !== MatchStatus.full) {
+    return res.status(409).json({ error: "Match cannot be cancelled now" });
+  }
+  const hostEmail = await getHostEmail(match);
+  if (!hostEmail || !emailsEqual(actor, hostEmail)) {
+    return res.status(403).json({ error: "Only the organiser can cancel this match" });
+  }
+  const updated = await prisma.match.update({
+    where: { id: req.params.id },
+    data: {
+      status: MatchStatus.cancelled,
+      cancelledBy: actor,
+      cancelledAt: new Date(),
+    },
+  });
+  const others = match.players.filter((p) => !emailsEqual(p, actor));
+  await notifyMatchEmails(others, {
+    type: "match_cancelled",
+    title: "Match cancelled",
+    body: `"${match.title}" has been cancelled.`,
+    matchId: match.id,
+  });
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/start", async (req, res) => {
@@ -304,12 +491,19 @@ matchesRouter.post("/:id/start", async (req, res) => {
     return res.status(403).json({ error: "Only the organiser can start the match" });
   }
 
-  const startCheck = validateMatchStart(match);
+  const rosterProfiles = await rosterProfileMap(match.players);
+  const startCheck = validateMatchStart(match, rosterProfiles);
   if (!startCheck.valid) {
     return res.status(400).json({ error: startCheck.reason });
   }
 
   const { teamA, teamB } = effectiveTeamsAtStart(match);
+  let teamACaptainEmail = match.teamACaptainEmail;
+  let teamBCaptainEmail = match.teamBCaptainEmail;
+  if (isDoublesStyle(match) && match.players.length >= 4) {
+    if (!teamACaptainEmail) teamACaptainEmail = teamA[0] ?? null;
+    if (!teamBCaptainEmail) teamBCaptainEmail = teamB[0] ?? null;
+  }
 
   const updated = await prisma.match.update({
     where: { id: req.params.id },
@@ -317,9 +511,11 @@ matchesRouter.post("/:id/start", async (req, res) => {
       status: MatchStatus.in_progress,
       teamA,
       teamB,
+      teamACaptainEmail,
+      teamBCaptainEmail,
     },
   });
-  return res.json(updated);
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/submit-score", async (req, res) => {
@@ -340,6 +536,9 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
   const actor = String(submittedBy || email || "").trim();
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status === MatchStatus.cancelled) {
+    return res.status(409).json({ error: "Match was cancelled" });
+  }
   if (match.status === MatchStatus.completed) {
     return res.json(match);
   }
@@ -419,10 +618,22 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
       pendingScoreTeamB: scoreTeamB,
       pendingWinnerTeam: pendingW,
       scoreSubmittedBy: actor,
-      status: MatchStatus.awaiting_score,
+      status: MatchStatus.pending_validation,
     },
   });
-  return res.json(updated);
+  const hostN = await getHostEmail(match);
+  const toAlert = new Set<string>();
+  if (hostN && !emailsEqual(hostN, actor)) toAlert.add(hostN);
+  for (const p of match.players) {
+    if (!emailsEqual(p, actor)) toAlert.add(p.trim());
+  }
+  await notifyMatchEmails([...toAlert], {
+    type: "match_score_pending",
+    title: "Score proposed",
+    body: `${actor} submitted a result for "${match.title}". Confirm or reject in the match.`,
+    matchId: match.id,
+  });
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/confirm-score", async (req, res) => {
@@ -430,12 +641,24 @@ matchesRouter.post("/:id/confirm-score", async (req, res) => {
   if (!actor) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
-  if (match.status !== MatchStatus.awaiting_score) {
+  if (
+    match.status !== MatchStatus.awaiting_score &&
+    match.status !== MatchStatus.pending_validation
+  ) {
     return res.status(409).json({ error: "No pending score to confirm" });
   }
+  const submitter = match.scoreSubmittedBy;
+  if (!submitter?.trim()) {
+    return res.status(400).json({ error: "No score submitter recorded" });
+  }
+  if (emailsEqual(actor, submitter)) {
+    return res.status(403).json({ error: "You cannot confirm your own score submission" });
+  }
   const hostEmail = await getHostEmail(match);
-  if (!hostEmail || !emailsEqual(actor, hostEmail)) {
-    return res.status(403).json({ error: "Only the organiser can confirm the score" });
+  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
+  const isPlayer = playersIncludesCi(match.players, actor);
+  if (!isHost && !isPlayer) {
+    return res.status(403).json({ error: "Only the organiser or a match participant can confirm" });
   }
   const w =
     match.pendingWinnerTeam ||
@@ -462,7 +685,14 @@ matchesRouter.post("/:id/confirm-score", async (req, res) => {
   } catch (err) {
     console.error("[elo] applyEloAfterCompletedMatch failed:", err);
   }
-  return res.json(updated);
+  const recipients = match.players.filter((p) => !emailsEqual(p, actor));
+  await notifyMatchEmails(recipients, {
+    type: "match_completed",
+    title: "Match result confirmed",
+    body: `"${match.title}" is complete. Rate your opponents when you can.`,
+    matchId: match.id,
+  });
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.post("/:id/reject-score", async (req, res) => {
@@ -470,12 +700,24 @@ matchesRouter.post("/:id/reject-score", async (req, res) => {
   if (!actor) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
-  const hostEmail = await getHostEmail(match);
-  if (!hostEmail || !emailsEqual(actor, hostEmail)) {
-    return res.status(403).json({ error: "Only the organiser can reject a proposed score" });
-  }
-  if (match.status !== MatchStatus.awaiting_score) {
+  if (
+    match.status !== MatchStatus.awaiting_score &&
+    match.status !== MatchStatus.pending_validation
+  ) {
     return res.status(409).json({ error: "No pending score to reject" });
+  }
+  const submitter = match.scoreSubmittedBy;
+  if (!submitter?.trim()) {
+    return res.status(400).json({ error: "No score submitter recorded" });
+  }
+  if (emailsEqual(actor, submitter)) {
+    return res.status(403).json({ error: "You cannot reject your own submission" });
+  }
+  const hostEmail = await getHostEmail(match);
+  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
+  const isPlayer = playersIncludesCi(match.players, actor);
+  if (!isHost && !isPlayer) {
+    return res.status(403).json({ error: "Only the organiser or a match participant can reject" });
   }
   const updated = await prisma.match.update({
     where: { id: req.params.id },
@@ -487,7 +729,14 @@ matchesRouter.post("/:id/reject-score", async (req, res) => {
       status: MatchStatus.in_progress,
     },
   });
-  return res.json(updated);
+  await notifyUser({
+    userEmail: submitter.trim(),
+    type: "match_score_rejected",
+    title: "Score not accepted",
+    body: `Your proposed score for "${match.title}" was rejected. Submit again after agreement.`,
+    matchId: match.id,
+  });
+  return res.json(await withHostJson(updated));
 });
 
 matchesRouter.get("/:id/chat-messages", async (req, res) => {

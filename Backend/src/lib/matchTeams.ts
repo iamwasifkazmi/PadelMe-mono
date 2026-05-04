@@ -21,6 +21,21 @@ export function isDoublesStyle(match: Pick<Match, "matchType" | "maxPlayers">): 
   return match.matchType !== MatchType.singles && match.maxPlayers >= 4;
 }
 
+/** Same team fill logic as `POST /matches/:id/start` (singles: auto 1v1 when unset). */
+export function effectiveTeamsAtStart(match: Match): { teamA: string[]; teamB: string[] } {
+  let teamA = [...match.teamA];
+  let teamB = [...match.teamB];
+  if (
+    match.players.length === 2 &&
+    !isDoublesStyle(match) &&
+    (teamA.length === 0 || teamB.length === 0)
+  ) {
+    teamA = [match.players[0]];
+    teamB = [match.players[1]];
+  }
+  return { teamA, teamB };
+}
+
 /** Balanced 2v2: strongest + weakest vs two middle (by effective Elo). */
 export function balancePadelTeams(
   players: string[],

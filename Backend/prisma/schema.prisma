@@ -154,6 +154,20 @@ model Match {
   confirmedPlayerEmails String[] @default([])
   /** Organiser locked lineups; required before start for doubles (4 players). */
   teamsLocked       Boolean     @default(false)
+  /** Base44-style: any | male | female | mixed (mixed = no per-player binary check here). */
+  genderRequirement String?     @default("any")
+  ageMin            Int?
+  ageMax            Int?
+  /** Inverted scale 1 = strongest / elite, 10 = beginner (Base44). */
+  skillRangeMin     Int?
+  skillRangeMax     Int?
+  /** Minimum player average star rating (maps to User.averageRating). */
+  minRatingThreshold Float?
+  /** none | photo | id */
+  verificationRequirement String? @default("none")
+  replacementNeeded Boolean     @default(false)
+  cancelledBy       String?
+  cancelledAt       DateTime?
   /** Proposed scores (Base44-style) before organiser confirms. */
   pendingScoreTeamA String?
   pendingScoreTeamB String?
@@ -320,6 +334,8 @@ model PlayerStats {
   setsLost         Int      @default(0)
   currentWinStreak Int      @default(0)
   bestWinStreak    Int      @default(0)
+  /** Base44-style reliability; late withdrawal reduces this (min 0). */
+  reliabilityScore Int      @default(100)
   eloRating        Int      @default(1000)
   eloPeak          Int      @default(1000)
   skillLabel       String?
