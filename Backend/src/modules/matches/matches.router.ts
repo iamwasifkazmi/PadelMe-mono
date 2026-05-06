@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { MatchStatus, MatchType } from "@prisma/client";
+import { MatchStatus, MatchType, type Match } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { applyEloAfterCompletedMatch } from "../../lib/applyEloAfterCompletedMatch.js";
 import {
@@ -37,6 +37,34 @@ function emailsEqual(a: string, b: string) {
 
 function playersIncludesCi(players: string[], email: string): boolean {
   return players.some((p) => emailsEqual(p, email));
+}
+
+/** Base44-style: organiser, or doubles team captains (fallback: first on team), or any other player for singles / small games. */
+async function actorCanValidatePendingScore(
+  match: Match,
+  actor: string,
+  submitter: string,
+): Promise<boolean> {
+  if (!actor?.trim() || !submitter?.trim()) return false;
+  if (emailsEqual(actor, submitter)) return false;
+  if (!playersIncludesCi(match.players, actor)) return false;
+  const hostEmail = await getHostEmail(match);
+  if (hostEmail && emailsEqual(actor, hostEmail)) return true;
+  if (isDoublesStyle(match) && match.players.length >= 4) {
+    const capA = (match.teamACaptainEmail || match.teamA[0] || "").trim();
+    const capB = (match.teamBCaptainEmail || match.teamB[0] || "").trim();
+    if (capA && emailsEqual(actor, capA)) return true;
+    if (capB && emailsEqual(actor, capB)) return true;
+    return false;
+  }
+  return true;
+}
+
+function singlesWinnerEmailFromMatch(match: Match, winnerTeam: "team_a" | "team_b"): string | null {
+  if (isDoublesStyle(match)) return null;
+  const { teamA, teamB } = effectiveTeamsAtStart(match);
+  if (winnerTeam === "team_a") return teamA[0] ?? match.players[0] ?? null;
+  return teamB[0] ?? match.players[1] ?? null;
 }
 
 function matchStartDateTime(match: { date: Date; timeLabel: string }): Date {
@@ -532,6 +560,35 @@ matchesRouter.post("/:id/start", async (req, res) => {
   return res.json(await withHostJson(updated));
 });
 
+/** Organiser marks the on-court portion done; score entry still open (Base44-style `awaiting_score`). */
+matchesRouter.post("/:id/awaiting-score", async (req, res) => {
+  const actor = String(req.body.email || "").trim();
+  if (!actor) return res.status(400).json({ error: "email is required" });
+  const match = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!match) return res.status(404).json({ error: "Match not found" });
+  if (match.status !== MatchStatus.in_progress) {
+    return res.status(409).json({ error: "Only an in-progress match can move to awaiting score" });
+  }
+  const hostEmail = await getHostEmail(match);
+  if (!hostEmail || !emailsEqual(actor, hostEmail)) {
+    return res.status(403).json({ error: "Only the organiser can mark awaiting score" });
+  }
+  const updated = await prisma.match.update({
+    where: { id: req.params.id },
+    data: { status: MatchStatus.awaiting_score },
+  });
+  const recipients = match.players.filter((p) => !emailsEqual(p, actor));
+  if (recipients.length > 0) {
+    await notifyMatchEmails(recipients, {
+      type: "match_awaiting_score",
+      title: "Match played — submit score",
+      body: `"${match.title}" is awaiting a score. Submit from the match screen when you've agreed the result.`,
+      matchId: match.id,
+    });
+  }
+  return res.json(await withHostJson(updated));
+});
+
 matchesRouter.post("/:id/submit-score", async (req, res) => {
   const {
     scoreTeamA,
@@ -569,6 +626,12 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     return res.status(400).json({ error: "scoreTeamA and scoreTeamB are required" });
   }
 
+  const scoreable =
+    match.status === MatchStatus.in_progress || match.status === MatchStatus.awaiting_score;
+  if (!scoreable) {
+    return res.status(409).json({ error: "Match is not accepting scores in its current state" });
+  }
+
   const hostEmail = await getHostEmail(match);
   const inferred = inferWinnerTeam(scoreTeamA, scoreTeamB);
   const resolvedWinner = (winnerTeam || inferred || "").trim() || null;
@@ -586,14 +649,16 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     if (!wTeam) {
       return res.status(400).json({ error: "winnerTeam could not be determined; set it explicitly" });
     }
+    const winnerEmailSingle = singlesWinnerEmailFromMatch(match, wTeam);
     const updated = await prisma.match.update({
       where: { id: req.params.id },
       data: {
         scoreTeamA,
         scoreTeamB,
         winnerTeam: wTeam,
+        winnerEmail: winnerEmailSingle,
         status: MatchStatus.completed,
-        scoreConfirmedBy: hostEmail && actor && emailsEqual(actor, hostEmail) ? actor : null,
+        scoreConfirmedBy: actor && actor.trim() ? actor : null,
         pendingScoreTeamA: null,
         pendingScoreTeamB: null,
         pendingWinnerTeam: null,
@@ -606,24 +671,21 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
     } catch (err) {
       console.error("[elo] applyEloAfterCompletedMatch failed:", err);
     }
-    return res.json(updated);
+    return res.json(await withHostJson(updated));
   };
 
-  // Legacy clients (no actor): complete immediately
+  // Legacy clients (no actor): complete immediately (no peer step).
   if (!actor) {
     return await finalize();
   }
 
-  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
-
-  if (isHost || !hostEmail) {
+  // Base44-style: if anyone else is on the match roster, proposed scores go to pending_validation
+  // for a captain / organiser / peer to confirm — including when the submitter is the organiser.
+  const others = match.players.filter((p) => !emailsEqual(p, actor));
+  if (others.length === 0) {
     return await finalize();
   }
 
-  // Participant proposal → organiser confirms (Base44-style)
-  if (match.status !== MatchStatus.in_progress) {
-    return res.status(409).json({ error: "Scores can only be proposed while the match is in progress" });
-  }
   const participant = match.players.some((p) => emailsEqual(p, actor));
   if (!participant) {
     return res.status(403).json({ error: "Only participants can submit a score" });
@@ -654,7 +716,7 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
   await notifyMatchEmails([...toAlert], {
     type: "match_score_pending",
     title: "Score proposed",
-    body: `${actor} submitted a result for "${match.title}". Confirm or reject in the match.`,
+    body: `${actor} submitted a result for "${match.title}". A team captain or organiser should confirm or reject in the match.`,
     matchId: match.id,
   });
   return res.json(await withHostJson(updated));
@@ -678,24 +740,27 @@ matchesRouter.post("/:id/confirm-score", async (req, res) => {
   if (emailsEqual(actor, submitter)) {
     return res.status(403).json({ error: "You cannot confirm your own score submission" });
   }
-  const hostEmail = await getHostEmail(match);
-  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
-  const isPlayer = playersIncludesCi(match.players, actor);
-  if (!isHost && !isPlayer) {
-    return res.status(403).json({ error: "Only the organiser or a match participant can confirm" });
+  const allowed = await actorCanValidatePendingScore(match, actor, submitter);
+  if (!allowed) {
+    return res.status(403).json({
+      error: "Only the organiser or a team captain can confirm this result (doubles), or the other player (singles).",
+    });
   }
-  const w =
+  const wRaw =
     match.pendingWinnerTeam ||
     inferWinnerTeam(match.pendingScoreTeamA || "", match.pendingScoreTeamB || "");
-  if (!w) {
+  if (wRaw !== "team_a" && wRaw !== "team_b") {
     return res.status(400).json({ error: "Invalid pending scores" });
   }
+  const w = wRaw;
+  const winnerEmailSingle = singlesWinnerEmailFromMatch(match, w);
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: {
       scoreTeamA: match.pendingScoreTeamA,
       scoreTeamB: match.pendingScoreTeamB,
       winnerTeam: w,
+      winnerEmail: winnerEmailSingle,
       status: MatchStatus.completed,
       scoreConfirmedBy: actor,
       pendingScoreTeamA: null,
@@ -737,11 +802,11 @@ matchesRouter.post("/:id/reject-score", async (req, res) => {
   if (emailsEqual(actor, submitter)) {
     return res.status(403).json({ error: "You cannot reject your own submission" });
   }
-  const hostEmail = await getHostEmail(match);
-  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
-  const isPlayer = playersIncludesCi(match.players, actor);
-  if (!isHost && !isPlayer) {
-    return res.status(403).json({ error: "Only the organiser or a match participant can reject" });
+  const allowed = await actorCanValidatePendingScore(match, actor, submitter);
+  if (!allowed) {
+    return res.status(403).json({
+      error: "Only the organiser or a team captain can reject this proposal (doubles), or the other player (singles).",
+    });
   }
   const updated = await prisma.match.update({
     where: { id: req.params.id },
@@ -784,11 +849,11 @@ matchesRouter.post("/:id/dispute-score", async (req, res) => {
   if (emailsEqual(actor, submitter)) {
     return res.status(403).json({ error: "You cannot dispute your own submission" });
   }
-  const hostEmail = await getHostEmail(match);
-  const isHost = Boolean(hostEmail && emailsEqual(actor, hostEmail));
-  const isPlayer = playersIncludesCi(match.players, actor);
-  if (!isHost && !isPlayer) {
-    return res.status(403).json({ error: "Only the organiser or a match participant can dispute" });
+  const allowed = await actorCanValidatePendingScore(match, actor, submitter);
+  if (!allowed) {
+    return res.status(403).json({
+      error: "Only the organiser or a team captain can dispute this proposal (doubles), or the other player (singles).",
+    });
   }
   const reasonPreview =
     reason.length > 160 ? `${reason.slice(0, 157)}...` : reason;
@@ -813,12 +878,13 @@ matchesRouter.post("/:id/dispute-score", async (req, res) => {
     body: `Your proposed score for "${match.title}" was disputed (${reasonPreview}). The organiser must reopen the match before a new result can be entered.`,
     matchId: match.id,
   });
+  const hostEmailDispute = await getHostEmail(match);
   const toAlert = new Set<string>();
   for (const p of match.players) {
     const pe = p.trim();
     if (!emailsEqual(pe, actor) && !emailsEqual(pe, submitter)) toAlert.add(pe);
   }
-  if (hostEmail && !emailsEqual(hostEmail, actor)) toAlert.add(hostEmail.trim());
+  if (hostEmailDispute && !emailsEqual(hostEmailDispute, actor)) toAlert.add(hostEmailDispute.trim());
   if (toAlert.size > 0) {
     await notifyMatchEmails([...toAlert], {
       type: "match_score_disputed",

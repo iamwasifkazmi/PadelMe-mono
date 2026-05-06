@@ -62,6 +62,10 @@ usersRouter.get("/", async (req, res) => {
 
   const where: Prisma.UserWhereInput = {};
 
+  if (viewerEmail) {
+    where.NOT = { email: { equals: viewerEmail, mode: "insensitive" } };
+  }
+
   if (search) {
     where.OR = [
       { fullName: { contains: search, mode: "insensitive" } },
