@@ -34,19 +34,41 @@ export async function applyEloAfterCompletedMatch(match: Match): Promise<void> {
     teamB = [match.players[1]];
   }
 
-  const allRated = [...new Set([...teamA, ...teamB])];
+  const allRatedRoster = [...new Set([...teamA, ...teamB])];
   if (!teamA.length || !teamB.length) return;
-  if (match.players.some((p) => !allRated.includes(p))) return;
+  if (match.players.some((p) => !allRatedRoster.includes(p))) return;
 
   const k = kFactorFromMatchTags(match.tags);
   const now = new Date();
 
-  const users = await prisma.user.findMany({
-    where: { email: { in: allRated } },
+  const usersResolved = await prisma.user.findMany({
+    where: {
+      OR: allRatedRoster.map((e) => ({
+        email: { equals: e.trim(), mode: "insensitive" as const },
+      })),
+    },
     include: { playerStats: true },
   });
+  const byLower = new Map(
+    usersResolved.map((u) => [u.email.trim().toLowerCase(), u] as const),
+  );
+  const canonical = (rosterEmail: string): string | null => {
+    const u = byLower.get(rosterEmail.trim().toLowerCase());
+    return u ? u.email : null;
+  };
+  for (const e of allRatedRoster) {
+    if (!canonical(e)) {
+      console.warn("[elo] Skipping match Elo: not all participants have user rows");
+      return;
+    }
+  }
+  teamA = teamA.map((e) => canonical(e)!);
+  teamB = teamB.map((e) => canonical(e)!);
+  const allRated = [...new Set([...teamA, ...teamB])];
+
+  const users = allRated.map((email) => byLower.get(email.trim().toLowerCase())!);
   if (users.length !== allRated.length) {
-    console.warn("[elo] Skipping match Elo: not all participants have user rows");
+    console.warn("[elo] Skipping match Elo: participant resolution mismatch");
     return;
   }
 
@@ -129,7 +151,7 @@ export async function applyEloAfterCompletedMatch(match: Match): Promise<void> {
       const label = skillLabelFromElo(c.newStored);
 
       return prisma.playerStats.upsert({
-        where: { userEmail: c.email },
+        where: { userId: c.userId },
         create: {
           userId: c.userId,
           userEmail: c.email,
@@ -143,6 +165,7 @@ export async function applyEloAfterCompletedMatch(match: Match): Promise<void> {
           lastMatchAt: now,
         },
         update: {
+          userEmail: c.email,
           matchesPlayed,
           matchesWon,
           matchesLost,
@@ -156,7 +179,7 @@ export async function applyEloAfterCompletedMatch(match: Match): Promise<void> {
     }),
     ...calcs.map((c) =>
       prisma.user.update({
-        where: { email: c.email },
+        where: { id: c.userId },
         data: {
           eloRating: c.newStored,
           skillLabel: skillLabelFromElo(c.newStored),

@@ -19,6 +19,8 @@ import {
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
 import { notifyMatchEmails, notifyUser } from "../../lib/matchNotifications.js";
+import { dedupeEmailsCi, emailsEqual, playersIncludesCi } from "../../lib/emailsCi.js";
+import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 
 export const matchesRouter = Router();
 
@@ -29,14 +31,6 @@ async function getHostEmail(match: { hostId: string | null }): Promise<string | 
     select: { email: true },
   });
   return u?.email ?? null;
-}
-
-function emailsEqual(a: string, b: string) {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-function playersIncludesCi(players: string[], email: string): boolean {
-  return players.some((p) => emailsEqual(p, email));
 }
 
 /** Base44-style: organiser, or doubles team captains (fallback: first on team), or any other player for singles / small games. */
@@ -111,7 +105,23 @@ matchesRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  res.json(matches);
+  let list = matches.map((m) => ({
+    ...m,
+    players: dedupeEmailsCi(m.players),
+    teamA: dedupeEmailsCi(m.teamA),
+    teamB: dedupeEmailsCi(m.teamB),
+    confirmedPlayerEmails: dedupeEmailsCi(m.confirmedPlayerEmails),
+  }));
+  if (status === MatchStatus.open) {
+    list = list.filter((m) =>
+      matchIsDiscoverableJoinable({
+        players: m.players,
+        confirmedPlayerEmails: m.confirmedPlayerEmails,
+        maxPlayers: m.maxPlayers,
+      }),
+    );
+  }
+  res.json(list);
 });
 
 matchesRouter.post("/", async (req, res) => {
@@ -216,7 +226,14 @@ matchesRouter.get("/:id", async (req, res) => {
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
   const hostEmail = await getHostEmail(match);
-  return res.json({ ...match, hostEmail });
+  return res.json({
+    ...match,
+    players: dedupeEmailsCi(match.players),
+    teamA: dedupeEmailsCi(match.teamA),
+    teamB: dedupeEmailsCi(match.teamB),
+    confirmedPlayerEmails: dedupeEmailsCi(match.confirmedPlayerEmails),
+    hostEmail,
+  });
 });
 
 matchesRouter.post("/:id/join", async (req, res) => {
@@ -225,50 +242,77 @@ matchesRouter.post("/:id/join", async (req, res) => {
   if (!email) return res.status(400).json({ error: "email is required" });
   const match = await prisma.match.findUnique({ where: { id: req.params.id } });
   if (!match) return res.status(404).json({ error: "Match not found" });
+  const joiner = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+  });
+  const canonicalEmail = (joiner?.email ?? email).trim();
+
   if (match.status === MatchStatus.cancelled) {
     return res.status(409).json({ error: "Match was cancelled" });
   }
   if (match.visibility === "invite_only") {
     const hostEmail = await getHostEmail(match);
     const allowed =
-      (hostEmail && emailsEqual(hostEmail, email)) ||
-      match.invitedEmails.some((e) => emailsEqual(e, email)) ||
-      playersIncludesCi(match.players, email);
+      (hostEmail && emailsEqual(hostEmail, canonicalEmail)) ||
+      match.invitedEmails.some((e) => emailsEqual(e, canonicalEmail)) ||
+      playersIncludesCi(match.players, canonicalEmail);
     if (!allowed) {
       return res.status(403).json({ error: "This match is invite-only" });
     }
   }
-  if (playersIncludesCi(match.players, email)) {
-    const m = await prisma.match.findUnique({ where: { id: req.params.id } });
-    return res.json(await withHostJson(m!));
+  if (playersIncludesCi(match.players, canonicalEmail)) {
+    const players = dedupeEmailsCi(match.players);
+    const teamA = dedupeEmailsCi(match.teamA);
+    const teamB = dedupeEmailsCi(match.teamB);
+    const dirty =
+      players.length !== match.players.length ||
+      teamA.length !== match.teamA.length ||
+      teamB.length !== match.teamB.length;
+    if (dirty) {
+      const cleaned = await prisma.match.update({
+        where: { id: req.params.id },
+        data: { players, teamA, teamB },
+      });
+      return res.json(await withHostJson(cleaned));
+    }
+    return res.json(await withHostJson(match));
   }
-  if (match.players.length >= match.maxPlayers) {
+  if (match.visibility !== "invite_only") {
+    if (
+      !matchIsDiscoverableJoinable({
+        players: match.players,
+        confirmedPlayerEmails: match.confirmedPlayerEmails,
+        maxPlayers: match.maxPlayers,
+      })
+    ) {
+      return res.status(409).json({ error: "This match is not accepting new players" });
+    }
+  }
+  if (dedupeEmailsCi(match.players).length >= match.maxPlayers) {
     return res.status(409).json({ error: "Match is full" });
   }
 
-  const joiner = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-  });
-  const prof = joiner ? userToEligibilityProfile(joiner) : stubProfileForEmail(email);
+  const prof = joiner ? userToEligibilityProfile(joiner) : stubProfileForEmail(canonicalEmail);
   const elig = playerMeetsMatchEligibility(match, prof);
   if (!elig.ok) {
     return res.status(403).json({ error: elig.reason });
   }
 
-  let teamA = [...match.teamA];
-  let teamB = [...match.teamB];
+  let teamA = dedupeEmailsCi([...match.teamA]);
+  let teamB = dedupeEmailsCi([...match.teamB]);
   if (isDoublesStyle(match) && !match.teamsLocked && match.maxPlayers >= 4) {
     if (team !== "a" && team !== "b") {
       return res.status(400).json({ error: "Choose team A or B for this doubles match" });
     }
-    if (team === "a") teamA = [...teamA, email];
-    else teamB = [...teamB, email];
+    if (team === "a") teamA = dedupeEmailsCi([...teamA, canonicalEmail]);
+    else teamB = dedupeEmailsCi([...teamB, canonicalEmail]);
   }
 
-  const players = [...match.players, email];
-  const confirmedPlayerEmails = match.confirmedPlayerEmails.some((e) => emailsEqual(e, email))
-    ? match.confirmedPlayerEmails
-    : [...match.confirmedPlayerEmails, email];
+  const players = dedupeEmailsCi([...match.players, canonicalEmail]);
+  const confirmedPlayerEmails = dedupeEmailsCi([
+    ...match.confirmedPlayerEmails,
+    canonicalEmail,
+  ]);
   const updated = await prisma.match.update({
     where: { id: req.params.id },
     data: {
@@ -367,9 +411,13 @@ matchesRouter.post("/:id/confirm", async (req, res) => {
   if (match.confirmedPlayerEmails.some((e) => emailsEqual(e, email))) {
     return res.json(await withHostJson(match));
   }
+  const confirmedPlayerEmails = dedupeEmailsCi([...match.confirmedPlayerEmails, email]);
+  const playersDeduped = dedupeEmailsCi(match.players);
+  const nextStatus =
+    playersDeduped.length >= match.maxPlayers ? MatchStatus.full : match.status;
   const updated = await prisma.match.update({
     where: { id: req.params.id },
-    data: { confirmedPlayerEmails: [...match.confirmedPlayerEmails, email] },
+    data: { confirmedPlayerEmails, status: nextStatus },
   });
   return res.json(await withHostJson(updated));
 });

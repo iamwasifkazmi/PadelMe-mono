@@ -135,7 +135,7 @@ usersRouter.get("/me", async (req, res) => {
   const email = String(req.query.email || "");
   if (!email) return res.status(400).json({ error: "email query is required" });
   const user = await ensureUserByEmail(email);
-  const ps = await prisma.playerStats.findUnique({ where: { userEmail: email } });
+  const ps = await prisma.playerStats.findUnique({ where: { userId: user.id } });
   const stored = ps?.eloRating ?? user.eloRating;
   const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
   return res.json({ ...user, eloRating });
@@ -296,7 +296,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
 
   const user = await ensureUserByEmail(email);
   const [playerStats, myMatches, myCompetitions, recentForm, friendRequests] = await Promise.all([
-    prisma.playerStats.findUnique({ where: { userEmail: email } }),
+    prisma.playerStats.findUnique({ where: { userId: user.id } }),
     prisma.match.findMany({
       where: { players: { has: email } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -543,7 +543,7 @@ usersRouter.get("/:id", async (req, res) => {
 
   const user = await prisma.user.findUnique({ where: { id: req.params.id } });
   if (!user) return res.status(404).json({ error: "User not found" });
-  const ps = await prisma.playerStats.findUnique({ where: { userEmail: user.email } });
+  const ps = await prisma.playerStats.findUnique({ where: { userId: user.id } });
   const stored = ps?.eloRating ?? user.eloRating;
   const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
   const distanceKm = distanceKmBetweenUsers(

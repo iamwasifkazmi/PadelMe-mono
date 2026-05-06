@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
 
 async function eventSummaryForEventId(eventId: string | null | undefined) {
   if (!eventId) return null;
@@ -135,9 +136,17 @@ invitesRouter.post("/accept", async (req, res) => {
   });
 
   if (updated.eventId) {
+    const joiner = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
+    const canonicalEmail = (joiner?.email ?? email).trim();
     const match = await prisma.match.findUnique({ where: { id: updated.eventId } });
-    if (match && !match.players.includes(email) && match.players.length < match.maxPlayers) {
-      const players = [...match.players, email];
+    if (
+      match &&
+      !playersIncludesCi(match.players, canonicalEmail) &&
+      dedupeEmailsCi(match.players).length < match.maxPlayers
+    ) {
+      const players = dedupeEmailsCi([...match.players, canonicalEmail]);
       await prisma.match.update({
         where: { id: match.id },
         data: {
@@ -147,10 +156,10 @@ invitesRouter.post("/accept", async (req, res) => {
       });
     } else {
       const comp = await prisma.competition.findUnique({ where: { id: updated.eventId } });
-      if (comp && !comp.participants.includes(email)) {
+      if (comp && !playersIncludesCi(comp.participants, canonicalEmail)) {
         await prisma.competition.update({
           where: { id: comp.id },
-          data: { participants: [...comp.participants, email] },
+          data: { participants: dedupeEmailsCi([...comp.participants, canonicalEmail]) },
         });
       }
     }

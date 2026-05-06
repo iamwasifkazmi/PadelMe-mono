@@ -8,6 +8,78 @@ import {
 
 export const conversationsRouter = Router();
 
+function normEmail(e: string) {
+  return String(e || "").trim().toLowerCase();
+}
+
+/** Ordered unique normalized emails (preserves first-seen order). */
+function normalizeParticipantList(emails: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of emails) {
+    const n = normEmail(raw);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+function uniqueNormParticipants(participantEmails: string[]): string[] {
+  return [...new Set(participantEmails.map(normEmail).filter(Boolean))];
+}
+
+function isDirectPair(type: string, participantEmails: string[]): boolean {
+  return type === "direct" && uniqueNormParticipants(participantEmails).length === 2;
+}
+
+async function areAcceptedFriends(emailA: string, emailB: string): Promise<boolean> {
+  const a = normEmail(emailA);
+  const b = normEmail(emailB);
+  if (!a || !b || a === b) return false;
+  const row = await prisma.friendRequest.findFirst({
+    where: {
+      status: "accepted",
+      OR: [
+        {
+          AND: [
+            { requesterEmail: { equals: a, mode: "insensitive" } },
+            { recipientEmail: { equals: b, mode: "insensitive" } },
+          ],
+        },
+        {
+          AND: [
+            { requesterEmail: { equals: b, mode: "insensitive" } },
+            { recipientEmail: { equals: a, mode: "insensitive" } },
+          ],
+        },
+      ],
+    },
+  });
+  return Boolean(row);
+}
+
+function isParticipant(conversation: { participantEmails: string[] }, email: string): boolean {
+  const v = normEmail(email);
+  if (!v) return false;
+  return conversation.participantEmails.some((e) => normEmail(e) === v);
+}
+
+/** Direct DMs require the two participants to be accepted friends. */
+async function assertDirectFriendsPolicy(conversation: {
+  type: string;
+  participantEmails: string[];
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isDirectPair(conversation.type, conversation.participantEmails)) {
+    return { ok: true };
+  }
+  const [e1, e2] = uniqueNormParticipants(conversation.participantEmails);
+  if (!(await areAcceptedFriends(e1, e2))) {
+    return { ok: false, error: "You can only message players on your friends list" };
+  }
+  return { ok: true };
+}
+
 conversationsRouter.get("/", async (req, res) => {
   const email = String(req.query.email || "");
   const conversations = await prisma.conversation.findMany({
@@ -28,10 +100,22 @@ conversationsRouter.post("/", async (req, res) => {
   if (!type || !participantEmails?.length) {
     return res.status(400).json({ error: "type and participantEmails are required" });
   }
+  const participantsNorm = normalizeParticipantList(participantEmails);
+  if (type === "direct") {
+    if (participantsNorm.length !== 2) {
+      return res
+        .status(400)
+        .json({ error: "Direct conversations require exactly two different participants" });
+    }
+    const [e1, e2] = participantsNorm;
+    if (!(await areAcceptedFriends(e1, e2))) {
+      return res.status(403).json({ error: "You can only message players on your friends list" });
+    }
+  }
   const created = await prisma.conversation.create({
     data: {
       type,
-      participantEmails,
+      participantEmails: participantsNorm.length ? participantsNorm : participantEmails,
       entityId,
       entityName,
     },
@@ -49,6 +133,19 @@ conversationsRouter.get("/:id/messages", async (req, res) => {
     where: { id: req.params.id },
   });
   if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+
+  if (isDirectPair(conversation.type, conversation.participantEmails)) {
+    if (!viewerEmail) {
+      return res.status(400).json({ error: "email is required" });
+    }
+    if (!isParticipant(conversation, viewerEmail)) {
+      return res.status(403).json({ error: "Not a participant" });
+    }
+    const policy = await assertDirectFriendsPolicy(conversation);
+    if (!policy.ok) return res.status(403).json({ error: policy.error });
+  } else if (viewerEmail && !isParticipant(conversation, viewerEmail)) {
+    return res.status(403).json({ error: "Not a participant" });
+  }
 
   if (viewerEmail) {
     const pendingDelivered = await prisma.message.findMany({
@@ -99,6 +196,16 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
   if (!senderEmail || !senderName || !text) {
     return res.status(400).json({ error: "senderEmail, senderName and text are required" });
   }
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: req.params.id },
+  });
+  if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+  if (!isParticipant(conversation, senderEmail)) {
+    return res.status(403).json({ error: "Not a participant" });
+  }
+  const policy = await assertDirectFriendsPolicy(conversation);
+  if (!policy.ok) return res.status(403).json({ error: policy.error });
+
   const message = await prisma.message.create({
     data: {
       conversationId: req.params.id,
@@ -109,12 +216,9 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       status: "sent",
     },
   });
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: req.params.id },
-  });
-  const unreadCounts = ((conversation?.unreadCounts as Record<string, number> | null) || {});
-  for (const email of conversation?.participantEmails || []) {
-    if (email === senderEmail) continue;
+  const unreadCounts = ((conversation.unreadCounts as Record<string, number> | null) || {});
+  for (const email of conversation.participantEmails) {
+    if (normEmail(email) === normEmail(senderEmail)) continue;
     unreadCounts[email] = (unreadCounts[email] || 0) + 1;
   }
   const updatedConversation = await prisma.conversation.update({
@@ -126,7 +230,7 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
       unreadCounts,
     },
   });
-  emitConversationMessage(req.params.id, message, conversation?.participantEmails || []);
+  emitConversationMessage(req.params.id, message, conversation.participantEmails);
   emitConversationUpdated(updatedConversation, updatedConversation.participantEmails);
   return res.status(201).json(message);
 });
@@ -136,6 +240,11 @@ conversationsRouter.post("/:id/read", async (req, res) => {
   if (!email) return res.status(400).json({ error: "email is required" });
   const conversation = await prisma.conversation.findUnique({ where: { id: req.params.id } });
   if (!conversation) return res.status(404).json({ error: "Conversation not found" });
+  if (!isParticipant(conversation, email)) {
+    return res.status(403).json({ error: "Not a participant" });
+  }
+  const policy = await assertDirectFriendsPolicy(conversation);
+  if (!policy.ok) return res.status(403).json({ error: policy.error });
   const unreadCounts = ((conversation.unreadCounts as Record<string, number> | null) || {});
   unreadCounts[email] = 0;
   const updated = await prisma.conversation.update({

@@ -46,6 +46,12 @@ enum CompetitionStatus {
   cancelled
 }
 
+enum CommunityPostKind {
+  feedback
+  idea
+  general
+}
+
 model User {
   id                 String    @id @default(cuid())
   email              String    @unique
@@ -95,6 +101,21 @@ model User {
   ratingsReceived    Rating[]  @relation("Rated")
   passwordOtps       PasswordResetOtp[]
   emailOtps          EmailVerificationOtp[]
+  communityPosts     CommunityPost[]
+}
+
+model CommunityPost {
+  id          String             @id @default(cuid())
+  authorEmail String
+  kind        CommunityPostKind  @default(general)
+  title       String?
+  body        String
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  author      User               @relation(fields: [authorEmail], references: [email], onDelete: Cascade)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([authorEmail])
 }
 
 model PasswordResetOtp {
