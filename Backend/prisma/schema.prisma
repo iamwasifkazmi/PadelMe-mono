@@ -201,7 +201,7 @@ model Match {
   pendingWinnerTeam String?
   scoreSubmittedBy  String?
   scoreConfirmedBy  String?
-  /** Optional photo/screenshot URL for score evidence (Base44-style). */
+  /** Newline-separated data:image URLs (score photo proof, optional). */
   evidenceUrl       String?
   /** Filled when a participant rejects a score as invalid (status → disputed). */
   scoreDisputeReason String?

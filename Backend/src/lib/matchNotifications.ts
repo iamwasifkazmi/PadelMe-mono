@@ -5,18 +5,34 @@ export async function notifyUser(opts: {
   type: string;
   title: string;
   body?: string;
+  /** Match-related notifications (detail, scores, etc.). */
   matchId?: string | null;
+  /** e.g. `conversation` for DMs when `matchId` is null */
+  relatedEntityType?: string | null;
+  relatedEntityId?: string | null;
 }) {
   try {
+    const matchId = opts.matchId ?? null;
+    const relatedEntityType =
+      opts.relatedEntityType != null && opts.relatedEntityType !== ""
+        ? opts.relatedEntityType
+        : matchId
+          ? "match"
+          : null;
+    const relatedEntityId =
+      opts.relatedEntityId != null && opts.relatedEntityId !== ""
+        ? opts.relatedEntityId
+        : matchId ?? null;
+
     return await prisma.notification.create({
       data: {
         userEmail: opts.userEmail.trim(),
         type: opts.type,
         title: opts.title,
         body: opts.body ?? null,
-        matchId: opts.matchId ?? null,
-        relatedEntityType: opts.matchId ? "match" : null,
-        relatedEntityId: opts.matchId ?? null,
+        matchId,
+        relatedEntityType,
+        relatedEntityId,
         priority: "normal",
       },
     });

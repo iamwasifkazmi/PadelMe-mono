@@ -1097,6 +1097,24 @@ matchesRouter.post("/:id/chat-messages", async (req, res) => {
   });
   const [enriched] = await enrichMatchChatMessages([created]);
   emitMatchMessage(matchId, enriched);
+
+  const matchRow = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: { title: true, players: true },
+  });
+  if (matchRow?.players?.length) {
+    const excerpt = text.length > 140 ? `${text.slice(0, 137)}…` : text;
+    const recipients = matchRow.players.filter((p) => !emailsEqual(p, senderEmail));
+    if (recipients.length > 0) {
+      await notifyMatchEmails(recipients, {
+        type: "match_chat_message",
+        title: `Match chat · ${matchRow.title}`,
+        body: `${senderName}: ${excerpt}`,
+        matchId,
+      });
+    }
+  }
+
   return res.status(201).json(enriched);
 });
 

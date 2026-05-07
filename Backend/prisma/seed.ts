@@ -360,7 +360,7 @@ async function main() {
 
   await prisma.match.create({
     data: {
-      title: "[DEMO] Social ladder — need 2 players",
+      title: "[DEMO] Social ladder — London Bridge (doubles)",
       date: days(-2),
       timeLabel: "18:00",
       durationMinutes: 90,
@@ -835,7 +835,7 @@ async function main() {
   console.log("  • Morning singles — Alex vs Chris, completed");
   console.log("  • League night doubles — completed");
   console.log("  • Rain check — cancelled");
-  console.log("  • Social ladder — open 2/4");
+  console.log("  • Social ladder — London Bridge, open (starts 2/4 in seed)");
   console.log("  • Sunday fourball — full, not started");
   console.log("  • Midweek ladder — awaiting score\n");
   console.log(`Competition: ${winterCup.name} (completed, standings + 2 box scores)\n`);

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { notifyUser } from "../../lib/matchNotifications.js";
 import { prisma } from "../../lib/prisma.js";
 import {
   emitConversationMessage,
@@ -232,6 +233,21 @@ conversationsRouter.post("/:id/messages", async (req, res) => {
   });
   emitConversationMessage(req.params.id, message, conversation.participantEmails);
   emitConversationUpdated(updatedConversation, updatedConversation.participantEmails);
+
+  const excerpt = text.length > 140 ? `${text.slice(0, 137)}…` : text;
+  for (const rawEmail of conversation.participantEmails) {
+    if (normEmail(rawEmail) === normEmail(senderEmail)) continue;
+    await notifyUser({
+      userEmail: rawEmail.trim(),
+      type: "dm_message",
+      title: `Message from ${senderName}`,
+      body: excerpt,
+      matchId: null,
+      relatedEntityType: "conversation",
+      relatedEntityId: conversation.id,
+    });
+  }
+
   return res.status(201).json(message);
 });
 
