@@ -68,6 +68,8 @@ model User {
   locationLat        Float?
   locationLng        Float?
   locationName       String?
+  /** Normalized country (e.g. "United Kingdom"); optional, for player discovery filters. */
+  country            String?
   sports             String[]  @default([])
   skillLevel         Int?
   skillLabel         String?
@@ -102,6 +104,8 @@ model User {
   passwordOtps       PasswordResetOtp[]
   emailOtps          EmailVerificationOtp[]
   communityPosts     CommunityPost[]
+
+  @@index([country])
 }
 
 model CommunityPost {
@@ -152,6 +156,8 @@ model Match {
   locationAddress   String?
   locationLat       Float?
   locationLng       Float?
+  /** Canonical English country name (same values as User.country); optional. */
+  country           String?
   skillLevel        String?
   maxPlayers        Int
   players           String[]    @default([])

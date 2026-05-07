@@ -42,6 +42,7 @@ usersRouter.get("/", async (req, res) => {
   }
   const gender = String(req.query.gender || "").trim().toLowerCase();
   const skillTier = String(req.query.skillTier || "").trim().toLowerCase();
+  const country = String(req.query.country || "").trim();
 
   const viewer = viewerEmail
     ? await prisma.user.findUnique({
@@ -66,11 +67,38 @@ usersRouter.get("/", async (req, res) => {
     where.NOT = { email: { equals: viewerEmail, mode: "insensitive" } };
   }
 
+  const andClauses: Prisma.UserWhereInput[] = [];
+
   if (search) {
-    where.OR = [
-      { fullName: { contains: search, mode: "insensitive" } },
-      { email: { contains: search, mode: "insensitive" } },
-    ];
+    andClauses.push({
+      OR: [
+        { fullName: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  if (country) {
+    andClauses.push({
+      OR: [
+        { country: { equals: country, mode: "insensitive" } },
+        {
+          AND: [
+            { OR: [{ country: null }, { country: "" }] },
+            {
+              OR: [
+                { locationName: { contains: country, mode: "insensitive" } },
+                { location: { contains: country, mode: "insensitive" } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  if (andClauses.length) {
+    where.AND = andClauses;
   }
 
   if (gender === "male" || gender === "female") {
@@ -154,6 +182,7 @@ usersRouter.patch("/me", async (req, res) => {
     locationName: string | null;
     locationLat: number | null;
     locationLng: number | null;
+    country: string | null;
     photoUrl: string;
     photoVerified: boolean;
     age: number | null;
@@ -207,6 +236,7 @@ usersRouter.patch("/me", async (req, res) => {
     if ("locationName" in payload) data.locationName = payload.locationName ?? undefined;
     if ("locationLat" in payload) data.locationLat = payload.locationLat ?? undefined;
     if ("locationLng" in payload) data.locationLng = payload.locationLng ?? undefined;
+    if ("country" in payload) data.country = payload.country?.trim() || null;
 
     const updated = await prisma.user.update({
       where: { email },
@@ -464,6 +494,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
       locationName: user.locationName,
       locationLat: user.locationLat,
       locationLng: user.locationLng,
+      country: user.country,
       bio: user.bio,
       photoUrl: user.photoUrl,
       skillLabel: user.skillLabel || "intermediate",

@@ -133,6 +133,7 @@ matchesRouter.post("/", async (req, res) => {
     locationAddress: string;
     locationLat: number;
     locationLng: number;
+    country: string;
     durationMinutes: number;
     notes: string;
     visibility: string;
@@ -172,6 +173,7 @@ matchesRouter.post("/", async (req, res) => {
   const initialStatus =
     players.length >= maxPlayers ? MatchStatus.full : MatchStatus.open;
 
+  const countryRaw = body.country != null ? String(body.country).trim() : "";
   const created = await prisma.match.create({
     data: {
       title: body.title,
@@ -181,6 +183,7 @@ matchesRouter.post("/", async (req, res) => {
       locationAddress: body.locationAddress || undefined,
       locationLat: lat,
       locationLng: lng,
+      country: countryRaw || undefined,
       durationMinutes: body.durationMinutes || undefined,
       notes: body.notes || undefined,
       visibility: body.visibility || "public",
