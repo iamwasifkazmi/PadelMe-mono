@@ -583,5 +583,34 @@ usersRouter.get("/:id", async (req, res) => {
     user.locationLat,
     user.locationLng,
   );
-  return res.json({ ...user, eloRating, distanceKm });
+
+  const matchesPlayed = ps?.matchesPlayed ?? 0;
+  const matchesWon = ps?.matchesWon ?? 0;
+  const matchesLost = ps?.matchesLost ?? 0;
+  const winRatePct = matchesPlayed > 0 ? Math.round((matchesWon / matchesPlayed) * 100) : null;
+
+  const recentFormRows = await prisma.playerRecentForm.findMany({
+    where: { userEmail: user.email },
+    orderBy: [{ matchDate: "desc" }, { createdAt: "desc" }],
+    take: 12,
+  });
+  const recentMatchResults = recentFormRows.map((f) => ({
+    matchId: f.matchId,
+    title: f.matchTitle,
+    date: (f.matchDate ?? f.createdAt).toISOString(),
+    result: f.result,
+    scoreSummary: f.scoreSummary ?? null,
+  }));
+
+  return res.json({
+    ...user,
+    eloRating,
+    distanceKm,
+    matchesPlayed,
+    matchesWon,
+    matchesLost,
+    winRatePct,
+    wins: matchesWon,
+    recentMatchResults,
+  });
 });
