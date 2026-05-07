@@ -317,6 +317,11 @@ model ChatMessage {
   deliveredAt DateTime?
   readAt      DateTime?
   createdAt   DateTime @default(now())
+
+  replyToId             String?
+  replyToTextSnapshot   String?
+  replyToSenderSnapshot String?
+  replyToSenderEmail    String?
 }
 
 model Notification {

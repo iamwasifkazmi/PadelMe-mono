@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { MatchStatus, MatchType, type Match } from "@prisma/client";
+import { MatchStatus, MatchType, type ChatMessage, type Match } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { applyEloAfterCompletedMatch } from "../../lib/applyEloAfterCompletedMatch.js";
 import {
@@ -31,6 +31,32 @@ async function getHostEmail(match: { hostId: string | null }): Promise<string | 
     select: { email: true },
   });
   return u?.email ?? null;
+}
+
+/** Attach latest profile name + photo for group chat UI (not stored on ChatMessage rows). */
+async function enrichMatchChatMessages<T extends ChatMessage>(rows: T[]) {
+  if (rows.length === 0) return [];
+  const emails = dedupeEmailsCi(rows.map((m) => m.senderEmail));
+  const users = await prisma.user.findMany({
+    where: { email: { in: emails } },
+    select: { email: true, photoUrl: true, fullName: true },
+  });
+  const byEmail = new Map(users.map((u) => [u.email.trim().toLowerCase(), u]));
+  return rows.map((m) => {
+    const u = byEmail.get(m.senderEmail.trim().toLowerCase());
+    const displayName = (u?.fullName && u.fullName.trim()) || m.senderName;
+    return {
+      ...m,
+      senderName: displayName,
+      senderPhotoUrl: u?.photoUrl ?? null,
+    };
+  });
+}
+
+function excerptReplyText(raw: string, max = 260) {
+  const t = raw.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
 }
 
 /** Base44-style: organiser, or doubles team captains (fallback: first on team), or any other player for singles / small games. */
@@ -1019,14 +1045,16 @@ matchesRouter.get("/:id/chat-messages", async (req, res) => {
     orderBy: { createdAt: "asc" },
     take: 400,
   });
-  res.json(messages);
+  res.json(await enrichMatchChatMessages(messages));
 });
 
 matchesRouter.post("/:id/chat-messages", async (req, res) => {
-  const { senderEmail, senderName, text } = req.body as Partial<{
+  const matchId = req.params.id;
+  const { senderEmail, senderName, text, replyToId: replyToIdRaw } = req.body as Partial<{
     senderEmail: string;
     senderName: string;
     text: string;
+    replyToId: string;
   }>;
   if (!senderEmail || !senderName || !text) {
     return res
@@ -1034,18 +1062,42 @@ matchesRouter.post("/:id/chat-messages", async (req, res) => {
       .json({ error: "senderEmail, senderName and text are required" });
   }
 
+  let replyFields: {
+    replyToId?: string;
+    replyToTextSnapshot?: string;
+    replyToSenderSnapshot?: string;
+    replyToSenderEmail?: string;
+  } = {};
+
+  if (replyToIdRaw && String(replyToIdRaw).trim()) {
+    const quoted = await prisma.chatMessage.findFirst({
+      where: { id: String(replyToIdRaw).trim(), matchId },
+    });
+    if (!quoted) {
+      return res.status(400).json({ error: "Quoted message not found in this match" });
+    }
+    replyFields = {
+      replyToId: quoted.id,
+      replyToTextSnapshot: excerptReplyText(quoted.text),
+      replyToSenderSnapshot: quoted.senderName,
+      replyToSenderEmail: quoted.senderEmail,
+    };
+  }
+
   const created = await prisma.chatMessage.create({
     data: {
-      matchId: req.params.id,
+      matchId,
       senderEmail,
       senderName,
       text,
       readBy: [senderEmail],
       status: "sent",
+      ...replyFields,
     },
   });
-  emitMatchMessage(req.params.id, created);
-  return res.status(201).json(created);
+  const [enriched] = await enrichMatchChatMessages([created]);
+  emitMatchMessage(matchId, enriched);
+  return res.status(201).json(enriched);
 });
 
 matchesRouter.post("/:id/chat-read", async (req, res) => {

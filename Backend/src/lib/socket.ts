@@ -155,17 +155,25 @@ export function emitConversationReceipt(
   }
 }
 
-export function emitMatchMessage(
-  matchId: string,
-  message: {
-    id: string;
-    matchId: string;
-    senderEmail: string;
-    senderName: string;
-    text: string;
-    createdAt: Date;
-  },
-) {
+export type MatchChatMessagePayload = {
+  id: string;
+  matchId: string;
+  senderEmail: string;
+  senderName: string;
+  senderPhotoUrl?: string | null;
+  text: string;
+  readBy?: string[];
+  status?: string;
+  deliveredAt?: Date | null;
+  readAt?: Date | null;
+  createdAt: Date;
+  replyToId?: string | null;
+  replyToTextSnapshot?: string | null;
+  replyToSenderSnapshot?: string | null;
+  replyToSenderEmail?: string | null;
+};
+
+export function emitMatchMessage(matchId: string, message: MatchChatMessagePayload) {
   if (!io) return;
   io.to(matchRoom(matchId)).emit("match:message", message);
 }
