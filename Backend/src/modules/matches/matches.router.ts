@@ -59,7 +59,7 @@ function excerptReplyText(raw: string, max = 260) {
   return `${t.slice(0, max - 1)}…`;
 }
 
-/** Base44-style: organiser, or doubles team captains (fallback: first on team), or any other player for singles / small games. */
+/** Base44-style: organiser, or doubles team captains (fallback: first on team), or the other player in singles. */
 async function actorCanValidatePendingScore(
   match: Match,
   actor: string,
@@ -70,7 +70,7 @@ async function actorCanValidatePendingScore(
   if (!playersIncludesCi(match.players, actor)) return false;
   const hostEmail = await getHostEmail(match);
   if (hostEmail && emailsEqual(actor, hostEmail)) return true;
-  if (isDoublesStyle(match) && match.players.length >= 4) {
+  if (isDoublesStyle(match)) {
     const capA = (match.teamACaptainEmail || match.teamA[0] || "").trim();
     const capB = (match.teamBCaptainEmail || match.teamB[0] || "").trim();
     if (capA && emailsEqual(actor, capA)) return true;
@@ -701,6 +701,47 @@ matchesRouter.post("/:id/submit-score", async (req, res) => {
 
   if (!scoreTeamA?.trim() || !scoreTeamB?.trim()) {
     return res.status(400).json({ error: "scoreTeamA and scoreTeamB are required" });
+  }
+
+  // Base44 MatchScoreModal: same submitter may edit while status is still pending_validation.
+  if (match.status === MatchStatus.pending_validation) {
+    if (!actor) {
+      return res.status(400).json({ error: "submittedBy or email is required to update a pending score" });
+    }
+    const pendingSubmitter = match.scoreSubmittedBy;
+    if (!pendingSubmitter?.trim() || !emailsEqual(actor, pendingSubmitter)) {
+      return res.status(409).json({
+        error: "Only the player who proposed the score can change it while it is pending validation",
+      });
+    }
+    if (!match.players.some((p) => emailsEqual(p, actor))) {
+      return res.status(403).json({ error: "Only participants can submit a score" });
+    }
+    const inferredEdit = inferWinnerTeam(scoreTeamA, scoreTeamB);
+    const resolvedWinnerEdit = (String(winnerTeam || "").trim() || inferredEdit || "").trim() || null;
+    const winnerNormEdit = resolvedWinnerEdit
+      ? resolvedWinnerEdit.toLowerCase().replace(/[\s-]+/g, "_")
+      : null;
+    const wTeamEdit =
+      winnerNormEdit === "team_a" || winnerNormEdit === "teama"
+        ? "team_a"
+        : winnerNormEdit === "team_b" || winnerNormEdit === "teamb"
+          ? "team_b"
+          : null;
+    const pendingWEdit = wTeamEdit || inferredEdit;
+    if (!pendingWEdit) {
+      return res.status(400).json({ error: "Could not infer winner; add winnerTeam" });
+    }
+    const updatedEdit = await prisma.match.update({
+      where: { id: req.params.id },
+      data: {
+        pendingScoreTeamA: scoreTeamA,
+        pendingScoreTeamB: scoreTeamB,
+        pendingWinnerTeam: pendingWEdit,
+        evidenceUrl: evidenceTrim || null,
+      },
+    });
+    return res.json(await withHostJson(updatedEdit));
   }
 
   const scoreable =
