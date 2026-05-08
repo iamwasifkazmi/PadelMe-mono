@@ -441,6 +441,62 @@ async function main() {
     },
   });
 
+  /** Extra open fixtures for manual / QA testing (visible on Home & Discover). */
+  const testWeekAhead = days(-7);
+  await prisma.match.create({
+    data: {
+      title: "[DEMO] Test Singles Open (1/2)",
+      date: testWeekAhead,
+      timeLabel: "18:00",
+      durationMinutes: 60,
+      locationName: "Horsham Padel Centre (test)",
+      locationAddress: "Horsham, United Kingdom",
+      locationLat: 51.0629,
+      locationLng: -0.3256,
+      country: "United Kingdom",
+      skillLevel: "intermediate",
+      maxPlayers: 2,
+      matchType: MatchType.singles,
+      status: MatchStatus.open,
+      visibility: "public",
+      hostId: alexId,
+      players: [eAlex],
+      confirmedPlayerEmails: [eAlex],
+      teamA: [],
+      teamB: [],
+      teamsLocked: false,
+      tags: ["🌱 Beginner-friendly"],
+      notes: "SEED: Test singles — host is Alex; one slot free.",
+    },
+  });
+
+  await prisma.match.create({
+    data: {
+      title: "[DEMO] Test Doubles Open (1/4)",
+      date: testWeekAhead,
+      timeLabel: "18:30",
+      durationMinutes: 90,
+      locationName: "Sunderland Padel Club (test)",
+      locationAddress: "Sunderland, United Kingdom",
+      locationLat: 54.9069,
+      locationLng: -1.3838,
+      country: "United Kingdom",
+      skillLevel: "intermediate",
+      maxPlayers: 4,
+      matchType: MatchType.doubles,
+      status: MatchStatus.open,
+      visibility: "public",
+      hostId: alexId,
+      players: [eAlex],
+      confirmedPlayerEmails: [eAlex],
+      teamA: [],
+      teamB: [],
+      teamsLocked: false,
+      tags: ["🤝 Social"],
+      notes: "SEED: Test doubles — host is Alex; three spots free.",
+    },
+  });
+
   const recentRows = [
     {
       userEmail: eAlex,
@@ -837,7 +893,9 @@ async function main() {
   console.log("  • Rain check — cancelled");
   console.log("  • Social ladder — London Bridge, open (starts 2/4 in seed)");
   console.log("  • Sunday fourball — full, not started");
-  console.log("  • Midweek ladder — awaiting score\n");
+  console.log("  • Midweek ladder — awaiting score");
+  console.log("  • Test singles open — Alex 1/2 (Horsham)");
+  console.log("  • Test doubles open — Alex 1/4 (Sunderland)\n");
   console.log(`Competition: ${winterCup.name} (completed, standings + 2 box scores)\n`);
 }
 

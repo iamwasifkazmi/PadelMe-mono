@@ -6,6 +6,7 @@ import {
   emitConversationReceipt,
   emitConversationUpdated,
 } from "../../lib/socket.js";
+import { ensureMissingMatchInboxesForViewer } from "../../lib/matchConversationInbox.js";
 
 export const conversationsRouter = Router();
 
@@ -83,6 +84,9 @@ async function assertDirectFriendsPolicy(conversation: {
 
 conversationsRouter.get("/", async (req, res) => {
   const email = String(req.query.email || "");
+  if (email.trim()) {
+    await ensureMissingMatchInboxesForViewer(email.trim());
+  }
   const conversations = await prisma.conversation.findMany({
     where: email ? { participantEmails: { has: email } } : undefined,
     orderBy: { updatedAt: "desc" },

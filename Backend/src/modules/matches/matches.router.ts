@@ -21,6 +21,7 @@ import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
 import { notifyMatchEmails, notifyUser } from "../../lib/matchNotifications.js";
 import { dedupeEmailsCi, emailsEqual, playersIncludesCi } from "../../lib/emailsCi.js";
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
+import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js";
 
 export const matchesRouter = Router();
 
@@ -1156,6 +1157,8 @@ matchesRouter.post("/:id/chat-messages", async (req, res) => {
     }
   }
 
+  await syncMatchConversationInbox(matchId);
+
   return res.status(201).json(enriched);
 });
 
@@ -1173,7 +1176,10 @@ matchesRouter.post("/:id/chat-read", async (req, res) => {
     take: 400,
   });
 
-  if (pendingRead.length === 0) return res.json({ success: true, updated: 0 });
+  if (pendingRead.length === 0) {
+    await syncMatchConversationInbox(req.params.id);
+    return res.json({ success: true, updated: 0 });
+  }
 
   const readAt = new Date();
   await prisma.$transaction(
@@ -1195,6 +1201,8 @@ matchesRouter.post("/:id/chat-read", async (req, res) => {
     actorEmail: email,
     at: readAt,
   });
+
+  await syncMatchConversationInbox(req.params.id);
 
   return res.json({ success: true, updated: pendingRead.length });
 });
