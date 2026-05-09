@@ -36,7 +36,8 @@ export default function PerformanceTab({ playerStats, recentForm, allHistory = [
 
   // Recent form from PlayerRecentForm (matches only, for dots)
   const sortedForm = [...recentForm].sort((a, b) => new Date(b.match_date) - new Date(a.match_date));
-  const recentFormDots = sortedForm.slice(0, 5).map(r => r.result);
+  // Oldest → newest left-to-right (most recent on the right).
+  const recentFormDots = sortedForm.slice(0, 5).map(r => r.result).reverse();
 
   // Unified history sorted newest-first (passed from parent or from recentForm fallback)
   const history = allHistory.length > 0 ? allHistory : sortedForm.map(r => ({

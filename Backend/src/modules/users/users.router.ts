@@ -462,8 +462,8 @@ usersRouter.get("/profile-summary", async (req, res) => {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 6);
 
-  const recentFormDots = recentForm
-    .slice(0, 5)
+  const recentFormDots = [...recentForm.slice(0, 5)]
+    .reverse()
     .map((r) => (String(r.result || "").toLowerCase().startsWith("w") ? "W" : "L"));
   const todayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
   const statusLine = user.availabilityDays.includes(todayName)

@@ -94,7 +94,7 @@ export default function Profile() {
 
   // Recent form dots: last 5 (from PlayerRecentForm, matches only)
   const sortedForm = [...recentForm].sort((a, b) => new Date(b.match_date) - new Date(a.match_date));
-  const recentFormDots = sortedForm.slice(0, 5).map(r => r.result).filter(Boolean);
+  const recentFormDots = sortedForm.slice(0, 5).map(r => r.result).filter(Boolean).reverse();
 
   // Friends
   const friendEmails = new Set(
