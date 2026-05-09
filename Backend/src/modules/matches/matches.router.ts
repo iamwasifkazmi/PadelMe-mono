@@ -25,6 +25,24 @@ import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js"
 
 export const matchesRouter = Router();
 
+/** `date` is YYYY-MM-DD → UTC midnight; combine with `timeLabel` as UTC clock for validation. */
+function scheduledStartUtcMs(dateStr: string, timeLabel: string): number {
+  const base = new Date(dateStr.trim());
+  if (Number.isNaN(base.getTime())) return NaN;
+  const parts = String(timeLabel || "").split(":");
+  const h = Number.parseInt(parts[0] ?? "", 10);
+  const m = Number.parseInt(parts[1] ?? "", 10);
+  return Date.UTC(
+    base.getUTCFullYear(),
+    base.getUTCMonth(),
+    base.getUTCDate(),
+    Number.isFinite(h) ? h : 0,
+    Number.isFinite(m) ? m : 0,
+    0,
+    0,
+  );
+}
+
 async function getHostEmail(match: { hostId: string | null }): Promise<string | null> {
   if (!match.hostId) return null;
   const u = await prisma.user.findUnique({
@@ -190,6 +208,14 @@ matchesRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "locationLat and locationLng are required (exact venue coordinates)" });
   }
   const isInstant = body.isInstant === true;
+  if (!isInstant) {
+    const dateStr = String(body.date || "").trim();
+    if (!dateStr) return res.status(400).json({ error: "date is required for scheduled matches" });
+    const startMs = scheduledStartUtcMs(dateStr, body.timeLabel);
+    if (Number.isNaN(startMs) || startMs < Date.now() - 60_000) {
+      return res.status(400).json({ error: "Match must be scheduled in the future" });
+    }
+  }
   const parsedDate = body.date ? new Date(body.date) : new Date();
   const host = body.createdByEmail
     ? await prisma.user.findUnique({ where: { email: body.createdByEmail } })

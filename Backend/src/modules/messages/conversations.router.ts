@@ -83,15 +83,31 @@ async function assertDirectFriendsPolicy(conversation: {
 }
 
 conversationsRouter.get("/", async (req, res) => {
-  const email = String(req.query.email || "");
-  if (email.trim()) {
-    await ensureMissingMatchInboxesForViewer(email.trim());
+  const emailRaw = String(req.query.email || "").trim();
+  let viewerCanonical = emailRaw;
+  if (emailRaw) {
+    const viewer = await prisma.user.findFirst({
+      where: { email: { equals: emailRaw, mode: "insensitive" } },
+      select: { email: true },
+    });
+    viewerCanonical = viewer?.email ?? emailRaw;
+    await ensureMissingMatchInboxesForViewer(viewerCanonical);
   }
-  const conversations = await prisma.conversation.findMany({
-    where: email ? { participantEmails: { has: email } } : undefined,
+
+  const pool = await prisma.conversation.findMany({
     orderBy: { updatedAt: "desc" },
-    take: 100,
+    take: emailRaw ? 450 : 100,
+    ...(emailRaw ? {} : {}),
   });
+
+  if (!emailRaw) {
+    return res.json(pool);
+  }
+
+  const needle = normEmail(viewerCanonical);
+  const conversations = pool
+    .filter((c) => c.participantEmails.some((e) => normEmail(e) === needle))
+    .slice(0, 100);
   res.json(conversations);
 });
 

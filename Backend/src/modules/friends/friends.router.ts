@@ -1,38 +1,57 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { distanceKmBetweenUsers } from "../../lib/geo.js";
+import { dedupeEmailsCi, emailsEqual } from "../../lib/emailsCi.js";
 
 export const friendsRouter = Router();
 
 friendsRouter.get("/", async (req, res) => {
-  const email = String(req.query.email || "");
-  if (!email) return res.status(400).json({ error: "email query is required" });
+  const emailRaw = String(req.query.email || "").trim();
+  if (!emailRaw) return res.status(400).json({ error: "email query is required" });
+
+  const viewer = await prisma.user.findFirst({
+    where: { email: { equals: emailRaw, mode: "insensitive" } },
+    select: { email: true, locationLat: true, locationLng: true },
+  });
+  const viewerEmail = viewer?.email ?? emailRaw;
 
   const requests = await prisma.friendRequest.findMany({
     where: {
-      OR: [{ requesterEmail: email }, { recipientEmail: email }],
+      OR: [
+        { requesterEmail: { equals: viewerEmail, mode: "insensitive" } },
+        { recipientEmail: { equals: viewerEmail, mode: "insensitive" } },
+      ],
     },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
 
   const accepted = requests.filter((r) => r.status === "accepted");
-  const friendEmails = accepted.map((r) =>
-    r.requesterEmail === email ? r.recipientEmail : r.requesterEmail,
+  const friendEmailsRaw = accepted.map((r) =>
+    emailsEqual(r.requesterEmail, viewerEmail) ? r.recipientEmail : r.requesterEmail,
   );
+  const friendEmails = dedupeEmailsCi(friendEmailsRaw);
 
-  const friends = friendEmails.length
-    ? await prisma.user.findMany({
-        where: { email: { in: friendEmails } },
-      })
-    : [];
+  const friends =
+    friendEmails.length > 0
+      ? await prisma.user.findMany({
+          where: {
+            OR: friendEmails.map((fe) => ({
+              email: { equals: fe, mode: "insensitive" },
+            })),
+          },
+        })
+      : [];
 
-  const viewer = await prisma.user.findUnique({
-    where: { email },
-    select: { locationLat: true, locationLng: true },
+  const friendsSeen = new Set<string>();
+  const friendsUnique = friends.filter((f) => {
+    const k = f.email.trim().toLowerCase();
+    if (friendsSeen.has(k)) return false;
+    friendsSeen.add(k);
+    return true;
   });
 
-  const friendsWithDistance = friends.map((f) => ({
+  const friendsWithDistance = friendsUnique.map((f) => ({
     ...f,
     distanceKm: distanceKmBetweenUsers(
       viewer?.locationLat,
