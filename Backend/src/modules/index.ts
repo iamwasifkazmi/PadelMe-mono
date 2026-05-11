@@ -11,6 +11,7 @@ import { verificationRouter } from "./verification/verification.router.js";
 import { authRouter } from "./auth/auth.router.js";
 import { ratingsRouter } from "./ratings/ratings.router.js";
 import { communityRouter } from "./community/community.router.js";
+import { maintenanceRouter } from "./maintenance/maintenance.router.js";
 
 export const apiRouter = Router();
 
@@ -26,3 +27,4 @@ apiRouter.use("/invites", invitesRouter);
 apiRouter.use("/verification", verificationRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/community", communityRouter);
+apiRouter.use("/internal", maintenanceRouter);

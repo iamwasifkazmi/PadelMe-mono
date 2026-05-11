@@ -22,26 +22,13 @@ import { notifyMatchEmails, notifyUser } from "../../lib/matchNotifications.js";
 import { dedupeEmailsCi, emailsEqual, playersIncludesCi } from "../../lib/emailsCi.js";
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js";
+import {
+  scheduledStartUtcMs,
+  scheduledNonInstantJoinAllowed,
+  scheduledNonInstantSlotIsExpired,
+} from "../../lib/matchSchedule.js";
 
 export const matchesRouter = Router();
-
-/** `date` is YYYY-MM-DD → UTC midnight; combine with `timeLabel` as UTC clock for validation. */
-function scheduledStartUtcMs(dateStr: string, timeLabel: string): number {
-  const base = new Date(dateStr.trim());
-  if (Number.isNaN(base.getTime())) return NaN;
-  const parts = String(timeLabel || "").split(":");
-  const h = Number.parseInt(parts[0] ?? "", 10);
-  const m = Number.parseInt(parts[1] ?? "", 10);
-  return Date.UTC(
-    base.getUTCFullYear(),
-    base.getUTCMonth(),
-    base.getUTCDate(),
-    Number.isFinite(h) ? h : 0,
-    Number.isFinite(m) ? m : 0,
-    0,
-    0,
-  );
-}
 
 async function getHostEmail(match: { hostId: string | null }): Promise<string | null> {
   if (!match.hostId) return null;
@@ -157,6 +144,15 @@ matchesRouter.get("/", async (req, res) => {
     teamB: dedupeEmailsCi(m.teamB),
     confirmedPlayerEmails: dedupeEmailsCi(m.confirmedPlayerEmails),
   }));
+  list = list.filter((m) => {
+    if (m.isInstant) return true;
+    if (m.status !== MatchStatus.open && m.status !== MatchStatus.full) return true;
+    return !scheduledNonInstantSlotIsExpired({
+      date: m.date instanceof Date ? m.date : new Date(m.date),
+      timeLabel: m.timeLabel,
+      isInstant: m.isInstant,
+    });
+  });
   if (status === MatchStatus.open) {
     list = list.filter((m) =>
       matchIsDiscoverableJoinable({
@@ -306,6 +302,7 @@ matchesRouter.post("/:id/join", async (req, res) => {
   if (match.status === MatchStatus.cancelled) {
     return res.status(409).json({ error: "Match was cancelled" });
   }
+
   if (match.visibility === "invite_only") {
     const hostEmail = await getHostEmail(match);
     const allowed =
@@ -333,6 +330,19 @@ matchesRouter.post("/:id/join", async (req, res) => {
     }
     return res.json(await withHostJson(match));
   }
+
+  if (
+    !scheduledNonInstantJoinAllowed({
+      date: match.date instanceof Date ? match.date : new Date(match.date),
+      timeLabel: match.timeLabel,
+      isInstant: match.isInstant,
+    })
+  ) {
+    return res.status(410).json({
+      error: "This match's scheduled time has passed; you cannot join anymore",
+    });
+  }
+
   if (match.visibility !== "invite_only") {
     if (
       !matchIsDiscoverableJoinable({
