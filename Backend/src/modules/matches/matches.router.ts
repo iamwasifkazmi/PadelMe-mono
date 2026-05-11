@@ -25,7 +25,7 @@ import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js"
 import {
   scheduledStartUtcMs,
   scheduledNonInstantJoinAllowed,
-  scheduledNonInstantSlotIsExpired,
+  matchAppearsOnDiscoveryListBySchedule,
 } from "../../lib/matchSchedule.js";
 
 export const matchesRouter = Router();
@@ -129,7 +129,11 @@ matchesRouter.get("/", async (req, res) => {
   const status = req.query.status as MatchStatus | undefined;
   const skill = String(req.query.skill || "").trim().toLowerCase();
   const where = {
-    ...(status ? { status } : {}),
+    ...(status
+      ? { status }
+      : {
+          NOT: { status: MatchStatus.cancelled },
+        }),
     ...(skill ? { skillLevel: skill } : {}),
   };
   const matches = await prisma.match.findMany({
@@ -144,15 +148,14 @@ matchesRouter.get("/", async (req, res) => {
     teamB: dedupeEmailsCi(m.teamB),
     confirmedPlayerEmails: dedupeEmailsCi(m.confirmedPlayerEmails),
   }));
-  list = list.filter((m) => {
-    if (m.isInstant) return true;
-    if (m.status !== MatchStatus.open && m.status !== MatchStatus.full) return true;
-    return !scheduledNonInstantSlotIsExpired({
+  list = list.filter((m) =>
+    matchAppearsOnDiscoveryListBySchedule({
       date: m.date instanceof Date ? m.date : new Date(m.date),
       timeLabel: m.timeLabel,
       isInstant: m.isInstant,
-    });
-  });
+      status: m.status,
+    }),
+  );
   if (status === MatchStatus.open) {
     list = list.filter((m) =>
       matchIsDiscoverableJoinable({

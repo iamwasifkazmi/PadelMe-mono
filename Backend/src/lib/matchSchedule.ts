@@ -12,7 +12,7 @@ function dateKeyFromStoredDate(date: Date): string {
 export function scheduledStartUtcMs(dateStr: string, timeLabel: string): number {
   const base = new Date(dateStr.trim());
   if (Number.isNaN(base.getTime())) return NaN;
-  const parts = String(timeLabel || "").split(":");
+  const parts = String(timeLabel || "").trim().split(":");
   const h = Number.parseInt(parts[0] ?? "", 10);
   const m = Number.parseInt(parts[1] ?? "", 10);
   return Date.UTC(
@@ -43,7 +43,7 @@ export function scheduledNonInstantSlotIsExpired(
 ): boolean {
   if (match.isInstant) return false;
   const start = matchScheduledStartUtcMs(match);
-  if (Number.isNaN(start)) return false;
+  if (Number.isNaN(start)) return true;
   return start + graceMs < nowMs;
 }
 
@@ -55,4 +55,23 @@ export function scheduledNonInstantJoinAllowed(
   const start = matchScheduledStartUtcMs(match);
   if (Number.isNaN(start)) return false;
   return start >= nowMs - JOIN_GRACE_MS;
+}
+
+/** Drop past scheduled slots for pre-start statuses; keep instant + in-play / score / history rows. */
+export function matchAppearsOnDiscoveryListBySchedule(match: {
+  date: Date;
+  timeLabel: string;
+  isInstant: boolean;
+  status: string;
+}): boolean {
+  if (match.isInstant) return true;
+  const raw = match.status;
+  const st = (raw == null || String(raw).trim() === "" ? "open" : String(raw).trim()).toLowerCase();
+  if (st !== "open" && st !== "full") return true;
+  const d = match.date instanceof Date ? match.date : new Date(match.date);
+  return !scheduledNonInstantSlotIsExpired({
+    date: d,
+    timeLabel: String(match.timeLabel || "").trim(),
+    isInstant: false,
+  });
 }

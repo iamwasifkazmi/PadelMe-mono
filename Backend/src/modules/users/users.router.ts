@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { distanceKmBetweenUsers } from "../../lib/geo.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emailsEqual } from "../../lib/emailsCi.js";
+import { scheduledNonInstantSlotIsExpired } from "../../lib/matchSchedule.js";
 
 export const usersRouter = Router();
 
@@ -374,7 +375,16 @@ usersRouter.get("/profile-summary", async (req, res) => {
 
   const completedMatches = myMatches.filter((m) => m.status === "completed");
   const upcomingMatches = myMatches
-    .filter((m) => m.status === "open" || m.status === "full")
+    .filter((m) => {
+      if (m.status !== "open" && m.status !== "full") return false;
+      if (m.isInstant) return true;
+      const d = m.date instanceof Date ? m.date : new Date(m.date);
+      return !scheduledNonInstantSlotIsExpired({
+        date: d,
+        timeLabel: m.timeLabel,
+        isInstant: false,
+      });
+    })
     .slice(0, 5)
     .map((m) => ({
       id: m.id,

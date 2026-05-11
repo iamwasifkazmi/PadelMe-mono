@@ -26,13 +26,18 @@ export async function cancelStalePastScheduledMatches(nowMs = Date.now()): Promi
       players: true,
     },
     orderBy: { date: "asc" },
-    take: 800,
+    take: 5000,
   });
 
   const matchIds: string[] = [];
 
   for (const m of candidates) {
-    if (!scheduledNonInstantSlotIsExpired(m, nowMs)) continue;
+    const slot = {
+      date: m.date,
+      timeLabel: m.timeLabel ?? "",
+      isInstant: m.isInstant,
+    };
+    if (!scheduledNonInstantSlotIsExpired(slot, nowMs)) continue;
 
     await prisma.match.update({
       where: { id: m.id },
