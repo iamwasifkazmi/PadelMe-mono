@@ -207,6 +207,13 @@ model Match {
   scoreDisputeReason String?
   disputedBy        String?
   disputedAt        DateTime?
+  /** simple | sets — how scores are entered (Base44). */
+  scoringMode       String      @default("simple")
+  /** 1 = one deciding set; 3 / 5 = best-of grids in score modal. */
+  numSets           Int         @default(1)
+  gamesPerSet       Int         @default(6)
+  tiebreakRule      String      @default("tiebreak_at_6")
+  autoBalanceTeams   Boolean    @default(false)
   host              User?       @relation("MatchHost", fields: [hostId], references: [id])
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt

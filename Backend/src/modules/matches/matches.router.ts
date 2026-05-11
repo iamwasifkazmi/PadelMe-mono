@@ -194,6 +194,11 @@ matchesRouter.post("/", async (req, res) => {
     skillRangeMax: number;
     minRatingThreshold: number;
     verificationRequirement: string;
+    scoringMode: string;
+    numSets: number;
+    gamesPerSet: number;
+    tiebreakRule: string;
+    autoBalanceTeams: boolean;
   }>;
   if (!body.title || !body.timeLabel || !body.locationName) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -221,6 +226,29 @@ matchesRouter.post("/", async (req, res) => {
   const players = body.createdByEmail ? [body.createdByEmail] : [];
   const initialStatus =
     players.length >= maxPlayers ? MatchStatus.full : MatchStatus.open;
+
+  const scoringRaw = body.scoringMode != null ? String(body.scoringMode).toLowerCase().trim() : "simple";
+  const scoringModeParsed = scoringRaw === "sets" ? "sets" : "simple";
+  let numSets =
+    typeof body.numSets === "number" && Number.isFinite(body.numSets)
+      ? Math.trunc(body.numSets)
+      : scoringModeParsed === "sets"
+        ? 3
+        : 1;
+  if (![1, 3, 5].includes(numSets)) numSets = scoringModeParsed === "sets" ? 3 : 1;
+  if (scoringModeParsed === "simple") numSets = 1;
+
+  const gamesPerSet =
+    typeof body.gamesPerSet === "number" && Number.isFinite(body.gamesPerSet)
+      ? Math.min(21, Math.max(1, Math.trunc(body.gamesPerSet)))
+      : 6;
+
+  const tiebreakIn = body.tiebreakRule != null ? String(body.tiebreakRule).trim() : "";
+  const tiebreakRule = tiebreakIn.slice(0, 48) || "tiebreak_at_6";
+
+  const matchTypeForBalance = body.matchType || MatchType.doubles;
+  const autoBalanceTeams =
+    body.autoBalanceTeams === true && matchTypeForBalance !== MatchType.singles;
 
   const countryRaw = body.country != null ? String(body.country).trim() : "";
   const created = await prisma.match.create({
@@ -255,6 +283,11 @@ matchesRouter.post("/", async (req, res) => {
       skillRangeMax: typeof body.skillRangeMax === "number" ? body.skillRangeMax : undefined,
       minRatingThreshold: typeof body.minRatingThreshold === "number" ? body.minRatingThreshold : undefined,
       verificationRequirement: body.verificationRequirement ?? "none",
+      scoringMode: scoringModeParsed,
+      numSets,
+      gamesPerSet,
+      tiebreakRule,
+      autoBalanceTeams,
     },
   });
   return res.status(201).json(await withHostJson(created));
