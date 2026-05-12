@@ -1,5 +1,5 @@
 /**
- * One-off / manual: cancel open & full non-instant matches whose scheduled start is in the past.
+ * One-off / manual: cancel **open** non-instant matches whose scheduled start is in the past.
  * Uses DATABASE_URL from .env (same as Prisma).
  *
  *   cd Backend && npx tsx scripts/run-stale-match-cleanup.ts

@@ -378,6 +378,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
     .filter((m) => {
       if (m.status !== "open" && m.status !== "full") return false;
       if (m.isInstant) return true;
+      if (m.status === "full") return true;
       const d = m.date instanceof Date ? m.date : new Date(m.date);
       return !scheduledNonInstantSlotIsExpired({
         date: d,

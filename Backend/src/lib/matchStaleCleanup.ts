@@ -5,8 +5,9 @@ import { scheduledNonInstantSlotIsExpired } from "./matchSchedule.js";
 import { notifyMatchEmails } from "./matchNotifications.js";
 
 /**
- * Cancels scheduled (non-instant) matches still in recruiting state whose slot start is in the past.
- * Idempotent-safe: only updates open/full rows.
+ * Cancels scheduled (non-instant) **open** matches whose slot start is in the past.
+ * Full rosters are not auto-cancelled so the group can still start the match.
+ * Idempotent-safe: only updates `open` rows.
  */
 export async function cancelStalePastScheduledMatches(nowMs = Date.now()): Promise<{
   cancelled: number;
@@ -14,7 +15,7 @@ export async function cancelStalePastScheduledMatches(nowMs = Date.now()): Promi
 }> {
   const candidates = await prisma.match.findMany({
     where: {
-      status: { in: [MatchStatus.open, MatchStatus.full] },
+      status: MatchStatus.open,
       isInstant: false,
     },
     select: {

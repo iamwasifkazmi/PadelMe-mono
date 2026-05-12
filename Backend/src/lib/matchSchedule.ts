@@ -57,7 +57,10 @@ export function scheduledNonInstantJoinAllowed(
   return start >= nowMs - JOIN_GRACE_MS;
 }
 
-/** Drop past scheduled slots for pre-start statuses; keep instant + in-play / score / history rows. */
+/**
+ * Discovery list: hide past slots only for **open** (still recruiting). Full rosters and any
+ * in-play / score / history status stay visible so a game can be started or continued.
+ */
 export function matchAppearsOnDiscoveryListBySchedule(match: {
   date: Date;
   timeLabel: string;
@@ -67,7 +70,7 @@ export function matchAppearsOnDiscoveryListBySchedule(match: {
   if (match.isInstant) return true;
   const raw = match.status;
   const st = (raw == null || String(raw).trim() === "" ? "open" : String(raw).trim()).toLowerCase();
-  if (st !== "open" && st !== "full") return true;
+  if (st !== "open") return true;
   const d = match.date instanceof Date ? match.date : new Date(match.date);
   return !scheduledNonInstantSlotIsExpired({
     date: d,
