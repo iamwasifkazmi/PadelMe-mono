@@ -2,6 +2,7 @@ import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
+import { notifyUser } from "../../lib/matchNotifications.js";
 
 async function eventSummaryForEventId(eventId: string | null | undefined) {
   if (!eventId) return null;
@@ -24,6 +25,62 @@ async function eventSummaryForEventId(eventId: string | null | undefined) {
     };
   }
   return null;
+}
+
+function isShareLinkPlaceholderEmail(receiverEmail: string) {
+  const e = receiverEmail.trim().toLowerCase();
+  return e.startsWith("share.") && e.endsWith("@invite.mipadel");
+}
+
+async function userEmailForNotification(rawReceiver: string) {
+  const u = await prisma.user.findFirst({
+    where: { email: { equals: rawReceiver.trim(), mode: "insensitive" } },
+    select: { email: true },
+  });
+  return u?.email ?? null;
+}
+
+/** In-app inbox (`Notification`) — `Invite` rows alone do not appear in notifications. */
+async function notifyReceiverForInvite(opts: {
+  receiverEmail: string;
+  senderEmail: string;
+  eventId: string | null | undefined;
+  inviteId: string;
+}) {
+  if (!opts.eventId) return;
+  if (isShareLinkPlaceholderEmail(opts.receiverEmail)) return;
+  const userEmail = await userEmailForNotification(opts.receiverEmail);
+  if (!userEmail) return;
+
+  const summary = await eventSummaryForEventId(opts.eventId);
+  if (!summary) return;
+
+  const sender = opts.senderEmail.trim();
+  const eventTitle = summary.title || "an event";
+  const title = summary.kind === "competition" ? "Competition invite" : "Match invite";
+  const body = `${sender} invited you to ${eventTitle}`;
+
+  if (summary.kind === "match") {
+    await notifyUser({
+      userEmail,
+      type: "match_invite",
+      title,
+      body,
+      matchId: summary.id,
+      relatedEntityType: "invite",
+      relatedEntityId: opts.inviteId,
+    });
+  } else {
+    await notifyUser({
+      userEmail,
+      type: "competition_invite",
+      title,
+      body,
+      matchId: null,
+      relatedEntityType: "competition",
+      relatedEntityId: summary.id,
+    });
+  }
 }
 
 export const invitesRouter = Router();
@@ -63,6 +120,12 @@ invitesRouter.post("/create", async (req, res) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   });
+  await notifyReceiverForInvite({
+    receiverEmail,
+    senderEmail,
+    eventId,
+    inviteId: created.id,
+  });
   return res.status(201).json(created);
 });
 
@@ -87,6 +150,17 @@ invitesRouter.post("/bulk-create", async (req, res) => {
           token: `inv_${Math.random().toString(36).slice(2, 10)}`,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
+      }),
+    ),
+  );
+
+  await Promise.all(
+    created.map((inv) =>
+      notifyReceiverForInvite({
+        receiverEmail: inv.receiverEmail,
+        senderEmail,
+        eventId,
+        inviteId: inv.id,
       }),
     ),
   );

@@ -315,19 +315,30 @@ usersRouter.get("/recent-results", async (req, res) => {
   const fallbackMatches = await prisma.match.findMany({
     where: {
       players: { has: viewerEmail },
-      status: { in: ["completed", "cancelled", "abandoned"] },
+      status: "completed",
     },
     orderBy: { date: "desc" },
     take: 12,
   });
 
   return res.json(
-    fallbackMatches.map((m) => ({
-      id: m.id,
-      result: m.status === "completed" ? "W" : "L",
-      elo: m.status === "completed" ? 8 : -4,
-      date: m.date,
-    })),
+    fallbackMatches.map((m) => {
+      const onA = (m.teamA || []).some((e) => emailsEqual(e, viewerEmail));
+      const onB = (m.teamB || []).some((e) => emailsEqual(e, viewerEmail));
+      const myTeam = onA ? "teamA" : onB ? "teamB" : null;
+      const won =
+        m.winnerTeam && myTeam
+          ? m.winnerTeam === myTeam
+          : m.winnerEmail
+            ? emailsEqual(m.winnerEmail, viewerEmail)
+            : false;
+      return {
+        id: m.id,
+        result: won ? "W" : "L",
+        elo: won ? 8 : -4,
+        date: m.date,
+      };
+    }),
   );
 });
 
@@ -459,13 +470,13 @@ usersRouter.get("/profile-summary", async (req, res) => {
   });
 
   const competitionHistoryItems = myCompetitions
-    .filter((c) => c.status === "completed" || c.status === "cancelled")
+    .filter((c) => c.status === "completed")
     .map((c) => ({
       id: c.id,
       type: "competition",
       title: c.name,
       date: c.endDate || c.startDate || c.createdAt,
-      result: c.status === "completed" ? "played" : "cancelled",
+      result: "played" as const,
       competitionType: c.type,
     }));
 
