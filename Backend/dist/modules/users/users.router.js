@@ -3,6 +3,8 @@ import { prisma } from "../../lib/prisma.js";
 import { Prisma } from "@prisma/client";
 import { distanceKmBetweenUsers } from "../../lib/geo.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
+import { emailsEqual } from "../../lib/emailsCi.js";
+import { scheduledNonInstantSlotIsExpired } from "../../lib/matchSchedule.js";
 export const usersRouter = Router();
 function buildDisplayNameFromEmail(email) {
     const baseName = email.split("@")[0] || "Player";
@@ -13,12 +15,15 @@ function buildDisplayNameFromEmail(email) {
         .join(" ") || "Player");
 }
 async function ensureUserByEmail(email) {
-    let user = await prisma.user.findUnique({ where: { email } });
+    const normalized = email.trim().toLowerCase();
+    let user = await prisma.user.findFirst({
+        where: { email: { equals: normalized, mode: "insensitive" } },
+    });
     if (!user) {
         user = await prisma.user.create({
             data: {
-                email,
-                fullName: buildDisplayNameFromEmail(email),
+                email: normalized,
+                fullName: buildDisplayNameFromEmail(normalized),
                 skillLabel: "intermediate",
             },
         });
@@ -37,6 +42,7 @@ usersRouter.get("/", async (req, res) => {
     }
     const gender = String(req.query.gender || "").trim().toLowerCase();
     const skillTier = String(req.query.skillTier || "").trim().toLowerCase();
+    const country = String(req.query.country || "").trim();
     const viewer = viewerEmail
         ? await prisma.user.findUnique({
             where: { email: viewerEmail },
@@ -51,11 +57,38 @@ usersRouter.get("/", async (req, res) => {
         return res.json([]);
     }
     const where = {};
+    if (viewerEmail) {
+        where.NOT = { email: { equals: viewerEmail, mode: "insensitive" } };
+    }
+    const andClauses = [];
     if (search) {
-        where.OR = [
-            { fullName: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-        ];
+        andClauses.push({
+            OR: [
+                { fullName: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+            ],
+        });
+    }
+    if (country) {
+        andClauses.push({
+            OR: [
+                { country: { equals: country, mode: "insensitive" } },
+                {
+                    AND: [
+                        { OR: [{ country: null }, { country: "" }] },
+                        {
+                            OR: [
+                                { locationName: { contains: country, mode: "insensitive" } },
+                                { location: { contains: country, mode: "insensitive" } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
+    }
+    if (andClauses.length) {
+        where.AND = andClauses;
     }
     if (gender === "male" || gender === "female") {
         where.gender = { equals: gender, mode: "insensitive" };
@@ -102,17 +135,20 @@ usersRouter.get("/me", async (req, res) => {
     const email = String(req.query.email || "");
     if (!email)
         return res.status(400).json({ error: "email query is required" });
+    res.setHeader("Cache-Control", "private, no-store");
     const user = await ensureUserByEmail(email);
-    const ps = await prisma.playerStats.findUnique({ where: { userEmail: email } });
+    const ps = await prisma.playerStats.findUnique({ where: { userId: user.id } });
     const stored = ps?.eloRating ?? user.eloRating;
     const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
     return res.json({ ...user, eloRating });
 });
 usersRouter.patch("/me", async (req, res) => {
-    const email = String(req.body.email || "");
+    const email = String(req.body.email || "").trim();
     if (!email)
         return res.status(400).json({ error: "email is required" });
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+    });
     if (!existing)
         return res.status(404).json({ error: "User not found" });
     const payload = req.body;
@@ -150,8 +186,10 @@ usersRouter.patch("/me", async (req, res) => {
             data.locationLat = payload.locationLat ?? undefined;
         if ("locationLng" in payload)
             data.locationLng = payload.locationLng ?? undefined;
+        if ("country" in payload)
+            data.country = payload.country?.trim() || null;
         const updated = await prisma.user.update({
-            where: { email },
+            where: { id: existing.id },
             data,
         });
         return res.json(updated);
@@ -184,7 +222,7 @@ usersRouter.patch("/me", async (req, res) => {
             if ("locationLng" in payload)
                 fb.locationLng = payload.locationLng ?? undefined;
             const fallback = await prisma.user.update({
-                where: { email },
+                where: { id: existing.id },
                 data: fb,
             });
             return res.json(fallback);
@@ -193,11 +231,14 @@ usersRouter.patch("/me", async (req, res) => {
     }
 });
 usersRouter.get("/recent-results", async (req, res) => {
-    const email = String(req.query.email || "").trim();
-    if (!email)
+    const emailRaw = String(req.query.email || "").trim();
+    if (!emailRaw)
         return res.status(400).json({ error: "email query is required" });
+    res.setHeader("Cache-Control", "private, no-store");
+    const user = await ensureUserByEmail(emailRaw);
+    const viewerEmail = user.email;
     const forms = await prisma.playerRecentForm.findMany({
-        where: { userEmail: email },
+        where: { userEmail: { equals: viewerEmail, mode: "insensitive" } },
         orderBy: { matchDate: "desc" },
         take: 12,
     });
@@ -211,50 +252,85 @@ usersRouter.get("/recent-results", async (req, res) => {
     }
     const fallbackMatches = await prisma.match.findMany({
         where: {
-            players: { has: email },
-            status: { in: ["completed", "cancelled", "abandoned"] },
+            players: { has: viewerEmail },
+            status: "completed",
         },
         orderBy: { date: "desc" },
         take: 12,
     });
-    return res.json(fallbackMatches.map((m) => ({
-        id: m.id,
-        result: m.status === "completed" ? "W" : "L",
-        elo: m.status === "completed" ? 8 : -4,
-        date: m.date,
-    })));
+    return res.json(fallbackMatches.map((m) => {
+        const onA = (m.teamA || []).some((e) => emailsEqual(e, viewerEmail));
+        const onB = (m.teamB || []).some((e) => emailsEqual(e, viewerEmail));
+        const myTeam = onA ? "teamA" : onB ? "teamB" : null;
+        const won = m.winnerTeam && myTeam
+            ? m.winnerTeam === myTeam
+            : m.winnerEmail
+                ? emailsEqual(m.winnerEmail, viewerEmail)
+                : false;
+        return {
+            id: m.id,
+            result: won ? "W" : "L",
+            elo: won ? 8 : -4,
+            date: m.date,
+        };
+    }));
 });
 usersRouter.get("/profile-summary", async (req, res) => {
-    const email = String(req.query.email || "").trim();
-    if (!email)
+    const emailParam = String(req.query.email || "").trim();
+    if (!emailParam)
         return res.status(400).json({ error: "email query is required" });
-    const user = await ensureUserByEmail(email);
+    res.setHeader("Cache-Control", "private, no-store");
+    const user = await ensureUserByEmail(emailParam);
+    const viewerEmail = user.email;
     const [playerStats, myMatches, myCompetitions, recentForm, friendRequests] = await Promise.all([
-        prisma.playerStats.findUnique({ where: { userEmail: email } }),
+        prisma.playerStats.findUnique({ where: { userId: user.id } }),
         prisma.match.findMany({
-            where: { players: { has: email } },
+            where: { players: { has: viewerEmail } },
             orderBy: [{ date: "desc" }, { createdAt: "desc" }],
             take: 120,
         }),
         prisma.competition.findMany({
-            where: { OR: [{ participants: { has: email } }, { hostEmail: email }] },
+            where: {
+                OR: [
+                    { participants: { has: viewerEmail } },
+                    { hostEmail: { equals: viewerEmail, mode: "insensitive" } },
+                ],
+            },
             orderBy: [{ endDate: "desc" }, { startDate: "desc" }, { createdAt: "desc" }],
             take: 80,
         }),
         prisma.playerRecentForm.findMany({
-            where: { userEmail: email },
+            where: { userEmail: { equals: viewerEmail, mode: "insensitive" } },
             orderBy: [{ matchDate: "desc" }, { createdAt: "desc" }],
             take: 30,
         }),
         prisma.friendRequest.findMany({
-            where: { OR: [{ requesterEmail: email }, { recipientEmail: email }] },
+            where: {
+                OR: [
+                    { requesterEmail: { equals: viewerEmail, mode: "insensitive" } },
+                    { recipientEmail: { equals: viewerEmail, mode: "insensitive" } },
+                ],
+            },
             orderBy: { createdAt: "desc" },
             take: 500,
         }),
     ]);
     const completedMatches = myMatches.filter((m) => m.status === "completed");
     const upcomingMatches = myMatches
-        .filter((m) => m.status === "open" || m.status === "full")
+        .filter((m) => {
+        if (m.status !== "open" && m.status !== "full")
+            return false;
+        if (m.isInstant)
+            return true;
+        if (m.status === "full")
+            return true;
+        const d = m.date instanceof Date ? m.date : new Date(m.date);
+        return !scheduledNonInstantSlotIsExpired({
+            date: d,
+            timeLabel: m.timeLabel,
+            isInstant: false,
+        });
+    })
         .slice(0, 5)
         .map((m) => ({
         id: m.id,
@@ -271,7 +347,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
     const eloRating = resolveEffectiveElo(storedElo, playerStats?.lastMatchAt ?? null);
     const eloPeak = playerStats?.eloPeak ?? Math.max(storedElo, 1000);
     const accepted = friendRequests.filter((r) => r.status === "accepted");
-    const friendEmails = accepted.map((r) => r.requesterEmail === email ? r.recipientEmail : r.requesterEmail);
+    const friendEmails = accepted.map((r) => emailsEqual(r.requesterEmail, viewerEmail) ? r.recipientEmail : r.requesterEmail);
     const friends = friendEmails.length
         ? await prisma.user.findMany({
             where: { email: { in: friendEmails } },
@@ -281,7 +357,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
         : [];
     const playedWithEmails = Array.from(new Set(completedMatches
         .flatMap((m) => m.players)
-        .filter((participantEmail) => participantEmail !== email)));
+        .filter((participantEmail) => !emailsEqual(participantEmail, viewerEmail))));
     const playedWith = playedWithEmails.length
         ? await prisma.user.findMany({
             where: { email: { in: playedWithEmails.slice(0, 20) } },
@@ -290,13 +366,15 @@ usersRouter.get("/profile-summary", async (req, res) => {
         })
         : [];
     const matchHistoryItems = completedMatches.map((m) => {
-        const myTeam = m.teamA.includes(email) ? "teamA" : m.teamB.includes(email) ? "teamB" : null;
+        const onA = m.teamA.some((e) => emailsEqual(e, viewerEmail));
+        const onB = m.teamB.some((e) => emailsEqual(e, viewerEmail));
+        const myTeam = onA ? "teamA" : onB ? "teamB" : null;
         const result = m.winnerTeam && myTeam
             ? m.winnerTeam === myTeam
                 ? "win"
                 : "loss"
             : m.winnerEmail
-                ? m.winnerEmail === email
+                ? emailsEqual(m.winnerEmail, viewerEmail)
                     ? "win"
                     : "loss"
                 : "played";
@@ -314,20 +392,20 @@ usersRouter.get("/profile-summary", async (req, res) => {
         };
     });
     const competitionHistoryItems = myCompetitions
-        .filter((c) => c.status === "completed" || c.status === "cancelled")
+        .filter((c) => c.status === "completed")
         .map((c) => ({
         id: c.id,
         type: "competition",
         title: c.name,
         date: c.endDate || c.startDate || c.createdAt,
-        result: c.status === "completed" ? "played" : "cancelled",
+        result: "played",
         competitionType: c.type,
     }));
     const recentHistory = [...matchHistoryItems, ...competitionHistoryItems]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 6);
-    const recentFormDots = recentForm
-        .slice(0, 5)
+    const recentFormDots = [...recentForm.slice(0, 5)]
+        .reverse()
         .map((r) => (String(r.result || "").toLowerCase().startsWith("w") ? "W" : "L"));
     const todayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
     const statusLine = user.availabilityDays.includes(todayName)
@@ -380,6 +458,7 @@ usersRouter.get("/profile-summary", async (req, res) => {
             locationName: user.locationName,
             locationLat: user.locationLat,
             locationLng: user.locationLng,
+            country: user.country,
             bio: user.bio,
             photoUrl: user.photoUrl,
             skillLabel: user.skillLabel || "intermediate",
@@ -456,9 +535,35 @@ usersRouter.get("/:id", async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user)
         return res.status(404).json({ error: "User not found" });
-    const ps = await prisma.playerStats.findUnique({ where: { userEmail: user.email } });
+    const ps = await prisma.playerStats.findUnique({ where: { userId: user.id } });
     const stored = ps?.eloRating ?? user.eloRating;
     const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
     const distanceKm = distanceKmBetweenUsers(viewer?.locationLat, viewer?.locationLng, user.locationLat, user.locationLng);
-    return res.json({ ...user, eloRating, distanceKm });
+    const matchesPlayed = ps?.matchesPlayed ?? 0;
+    const matchesWon = ps?.matchesWon ?? 0;
+    const matchesLost = ps?.matchesLost ?? 0;
+    const winRatePct = matchesPlayed > 0 ? Math.round((matchesWon / matchesPlayed) * 100) : null;
+    const recentFormRows = await prisma.playerRecentForm.findMany({
+        where: { userEmail: user.email },
+        orderBy: [{ matchDate: "desc" }, { createdAt: "desc" }],
+        take: 12,
+    });
+    const recentMatchResults = recentFormRows.map((f) => ({
+        matchId: f.matchId,
+        title: f.matchTitle,
+        date: (f.matchDate ?? f.createdAt).toISOString(),
+        result: f.result,
+        scoreSummary: f.scoreSummary ?? null,
+    }));
+    return res.json({
+        ...user,
+        eloRating,
+        distanceKm,
+        matchesPlayed,
+        matchesWon,
+        matchesLost,
+        winRatePct,
+        wins: matchesWon,
+        recentMatchResults,
+    });
 });

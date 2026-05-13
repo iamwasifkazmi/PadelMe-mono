@@ -1,21 +1,46 @@
 import { Router } from "express";
 import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
+import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 export const instantPlayRouter = Router();
+async function canonicalUserEmail(raw) {
+    const trimmed = raw.trim();
+    const u = await prisma.user.findFirst({
+        where: { email: { equals: trimmed, mode: "insensitive" } },
+    });
+    return (u?.email ?? trimmed).trim();
+}
+function coerceMatchType(raw) {
+    const s = String(raw ?? "").toLowerCase();
+    if (s === "singles")
+        return MatchType.singles;
+    if (s === "mixed" || s === "mixed_doubles")
+        return MatchType.mixed_doubles;
+    return MatchType.doubles;
+}
 instantPlayRouter.post("/join", async (req, res) => {
-    const { userEmail, userName, matchType = MatchType.doubles, locationName, locationLat, locationLng, skillLevel = "any", } = req.body;
+    const { userEmail, userName, matchType: matchTypeRaw, locationName, locationLat, locationLng, skillLevel = "any", } = req.body;
+    const matchType = coerceMatchType(matchTypeRaw);
     if (!userEmail)
         return res.status(400).json({ error: "userEmail is required" });
-    const openInstant = await prisma.match.findFirst({
+    const canonical = await canonicalUserEmail(userEmail);
+    const openInstantCandidates = await prisma.match.findMany({
         where: {
             status: MatchStatus.open,
             isInstant: true,
-            matchType: matchType || MatchType.doubles,
+            matchType,
         },
         orderBy: { createdAt: "asc" },
+        take: 25,
     });
-    if (openInstant && !openInstant.players.includes(userEmail)) {
-        const players = [...openInstant.players, userEmail];
+    const openInstant = openInstantCandidates.find((m) => matchIsDiscoverableJoinable({
+        players: m.players,
+        confirmedPlayerEmails: m.confirmedPlayerEmails,
+        maxPlayers: m.maxPlayers,
+    })) ?? null;
+    if (openInstant && !playersIncludesCi(openInstant.players, canonical)) {
+        const players = dedupeEmailsCi([...openInstant.players, canonical]);
         const updated = await prisma.match.update({
             where: { id: openInstant.id },
             data: {
@@ -33,20 +58,20 @@ instantPlayRouter.post("/join", async (req, res) => {
             locationName,
             locationLat: locationLat ?? null,
             locationLng: locationLng ?? null,
-            matchType: matchType || MatchType.doubles,
+            matchType,
             status: "waiting",
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
         },
     });
     const waiting = await prisma.instantPlayRequest.findMany({
-        where: { status: "waiting", matchType: matchType || MatchType.doubles },
+        where: { status: "waiting", matchType },
         orderBy: { createdAt: "asc" },
         take: 4,
     });
     const needed = (matchType === MatchType.singles ? 2 : 4);
     if (waiting.length >= needed) {
         const selected = waiting.slice(0, needed);
-        const emails = selected.map((r) => r.userEmail);
+        const emails = dedupeEmailsCi(selected.map((r) => r.userEmail));
         const anchor = selected[0];
         const resolvedName = anchor?.locationName || locationName || "Nearby Court";
         const resolvedLat = anchor?.locationLat ?? locationLat ?? null;
@@ -64,7 +89,7 @@ instantPlayRouter.post("/join", async (req, res) => {
                 players: emails,
                 status: MatchStatus.open,
                 isInstant: true,
-                matchType: matchType || MatchType.doubles,
+                matchType,
             },
         });
         await prisma.instantPlayRequest.updateMany({
@@ -73,16 +98,23 @@ instantPlayRouter.post("/join", async (req, res) => {
         });
         return res.json({ status: "matched", matchId: createdMatch.id, requestId: requestRow.id });
     }
-    const nearbyMatches = await prisma.match.findMany({
+    const nearbyMatchesRaw = await prisma.match.findMany({
         where: {
             status: MatchStatus.open,
             isInstant: true,
-            matchType: matchType || MatchType.doubles,
+            matchType,
             NOT: { players: { has: userEmail } },
         },
         orderBy: { createdAt: "desc" },
-        take: 8,
+        take: 24,
     });
+    const nearbyMatches = nearbyMatchesRaw
+        .filter((m) => matchIsDiscoverableJoinable({
+        players: m.players,
+        confirmedPlayerEmails: m.confirmedPlayerEmails,
+        maxPlayers: m.maxPlayers,
+    }))
+        .slice(0, 8);
     const nearbySummary = nearbyMatches.map((m) => ({
         id: m.id,
         title: m.title,
@@ -104,14 +136,23 @@ instantPlayRouter.post("/join-match", async (req, res) => {
     if (!matchId || !userEmail) {
         return res.status(400).json({ error: "matchId and userEmail are required" });
     }
+    const canonical = await canonicalUserEmail(userEmail);
     const match = await prisma.match.findUnique({ where: { id: matchId } });
     if (!match)
         return res.status(404).json({ error: "Match not found" });
-    if (match.players.includes(userEmail))
+    if (playersIncludesCi(match.players, canonical))
         return res.json({ status: "matched", matchId });
-    if (match.players.length >= match.maxPlayers)
+    if (!matchIsDiscoverableJoinable({
+        players: match.players,
+        confirmedPlayerEmails: match.confirmedPlayerEmails,
+        maxPlayers: match.maxPlayers,
+    })) {
+        return res.status(409).json({ error: "This game is full or closed to new players" });
+    }
+    if (dedupeEmailsCi(match.players).length >= match.maxPlayers) {
         return res.status(409).json({ error: "Match full" });
-    const players = [...match.players, userEmail];
+    }
+    const players = dedupeEmailsCi([...match.players, canonical]);
     await prisma.match.update({
         where: { id: matchId },
         data: {

@@ -14,8 +14,26 @@ export function teamsPartitionPlayers(teamA, teamB, players) {
         return false;
     return true;
 }
+/** Doubles lobby: 2v2, line-ups locked before start. maxPlayers≥4 counts even if DB matchType defaulted to singles. */
 export function isDoublesStyle(match) {
-    return match.matchType !== MatchType.singles && match.maxPlayers >= 4;
+    if (match.matchType === MatchType.singles && match.maxPlayers <= 2) {
+        return false;
+    }
+    return (match.matchType === MatchType.doubles ||
+        match.matchType === MatchType.mixed_doubles ||
+        match.maxPlayers >= 4);
+}
+/** Same team fill logic as `POST /matches/:id/start` (singles: auto 1v1 when unset). */
+export function effectiveTeamsAtStart(match) {
+    let teamA = [...match.teamA];
+    let teamB = [...match.teamB];
+    if (match.players.length === 2 &&
+        !isDoublesStyle(match) &&
+        (teamA.length === 0 || teamB.length === 0)) {
+        teamA = [match.players[0]];
+        teamB = [match.players[1]];
+    }
+    return { teamA, teamB };
 }
 /** Balanced 2v2: strongest + weakest vs two middle (by effective Elo). */
 export function balancePadelTeams(players, eloByEmail) {
@@ -37,40 +55,27 @@ export function balancePadelTeams(players, eloByEmail) {
         teamB: sorted.slice(mid),
     };
 }
-/** Infer winner from score strings (set scores comma-separated or single total). */
+/**
+ * Infer winner from score strings (comma-separated per-set games, or single totals).
+ * Matches Base44 `MatchValidateModal.getWinner`: majority of sets wins; ties resolve to team_b;
+ * simple numeric compare uses strict `>`, so equal totals → team_b.
+ */
 export function inferWinnerTeam(scoreTeamA, scoreTeamB) {
     const rawA = (scoreTeamA || "").trim();
     const rawB = (scoreTeamB || "").trim();
     if (!rawA || !rawB)
         return null;
-    if (rawA.includes(",") || rawB.includes(",")) {
-        const as = rawA.split(",").map((s) => s.trim()).filter(Boolean);
-        const bs = rawB.split(",").map((s) => s.trim()).filter(Boolean);
-        let winsA = 0;
-        const n = Math.min(as.length, bs.length);
-        for (let i = 0; i < n; i++) {
-            const na = Number(as[i]);
-            const nb = Number(bs[i]);
-            if (Number.isNaN(na) || Number.isNaN(nb))
-                continue;
-            if (na > nb)
-                winsA++;
-            else if (na < nb)
-                winsA--;
-        }
-        if (winsA > 0)
-            return "team_a";
-        if (winsA < 0)
-            return "team_b";
+    const as = rawA.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    const bs = rawB.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    if (!as.length || !bs.length)
         return null;
+    if (as.length > 1) {
+        const winsA = as.filter((s, i) => Number(s) > Number(bs[i] ?? 0)).length;
+        return winsA > as.length / 2 ? "team_a" : "team_b";
     }
-    const na = Number(rawA);
-    const nb = Number(rawB);
+    const na = Number(as[0]);
+    const nb = Number(bs.length ? bs[0] : rawB);
     if (Number.isNaN(na) || Number.isNaN(nb))
         return null;
-    if (na > nb)
-        return "team_a";
-    if (nb > na)
-        return "team_b";
-    return null;
+    return na > nb ? "team_a" : "team_b";
 }
