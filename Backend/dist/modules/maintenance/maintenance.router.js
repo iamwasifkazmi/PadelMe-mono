@@ -1,9 +1,12 @@
 import { Router } from "express";
-import { cancelStalePastScheduledMatches } from "../../lib/matchStaleCleanup.js";
+import { runAllStaleMatchCleanups } from "../../lib/matchStaleCleanup.js";
 export const maintenanceRouter = Router();
 /**
  * Intended for GCP Cloud Scheduler / cron: Header Authorization: Bearer <STALE_MATCH_CRON_SECRET>,
  * or `x-cron-secret: <same>`.
+ *
+ * Runs: (1) cancel **open** non-instant matches whose scheduled start is in the past;
+ * (2) cancel **full** non-instant matches still not started 24h after scheduled start — notifies roster.
  */
 maintenanceRouter.post("/cleanup-stale-matches", async (req, res) => {
     const configured = (process.env.STALE_MATCH_CRON_SECRET || "").trim();
@@ -14,7 +17,7 @@ maintenanceRouter.post("/cleanup-stale-matches", async (req, res) => {
         return res.status(403).json({ error: "Forbidden" });
     }
     try {
-        const result = await cancelStalePastScheduledMatches();
+        const result = await runAllStaleMatchCleanups();
         return res.json({ ok: true, ...result });
     }
     catch (e) {

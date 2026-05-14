@@ -1,16 +1,16 @@
 /**
- * One-off / manual: cancel **open** non-instant matches whose scheduled start is in the past.
+ * One-off / manual: stale match cleanups (open past slot + full roster never started 24h after start).
  * Uses DATABASE_URL from .env (same as Prisma).
  *
  *   cd Backend && npx tsx scripts/run-stale-match-cleanup.ts
  */
 import "dotenv/config";
-import { cancelStalePastScheduledMatches } from "../src/lib/matchStaleCleanup.js";
+import { runAllStaleMatchCleanups } from "../src/lib/matchStaleCleanup.js";
 
 async function main() {
-  const r = await cancelStalePastScheduledMatches();
+  const r = await runAllStaleMatchCleanups();
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ ok: true, cancelled: r.cancelled, matchIds: r.matchIds }, null, 2));
+  console.log(JSON.stringify({ ok: true, ...r }, null, 2));
 }
 
 main().catch((e) => {
