@@ -3,3 +3,6 @@ assets-to-copy-from/client_secret*.json
 
 # Optional local overrides for Cloud Run deploy (never commit secrets)
 Backend/cloud-run.env
+
+# Backend dependencies — install with `npm ci` in Backend/ (Dockerfile does this for deploy)
+Backend/node_modules/
