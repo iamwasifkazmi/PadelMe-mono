@@ -7,7 +7,7 @@ import { validateMatchStart } from "../../lib/matchStartValidator.js";
 import { playerMeetsMatchEligibility, userToEligibilityProfile, stubProfileForEmail, } from "../../lib/matchEligibility.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emitMatchMessage, emitMatchReceipt } from "../../lib/socket.js";
-import { notifyMatchEmails, notifyUser } from "../../lib/matchNotifications.js";
+import { notifyHostPlayerJoinedMatch, notifyMatchEmails, notifyUser, } from "../../lib/matchNotifications.js";
 import { dedupeEmailsCi, emailsEqual, playersIncludesCi } from "../../lib/emailsCi.js";
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js";
@@ -352,6 +352,15 @@ matchesRouter.post("/:id/join", async (req, res) => {
             status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
         },
     });
+    const hostEmail = await getHostEmail(match);
+    if (hostEmail) {
+        await notifyHostPlayerJoinedMatch({
+            hostEmail,
+            joinerEmail: canonicalEmail,
+            matchId: match.id,
+            matchTitle: match.title,
+        });
+    }
     return res.json(await withHostJson(updated));
 });
 matchesRouter.post("/:id/leave", async (req, res) => {

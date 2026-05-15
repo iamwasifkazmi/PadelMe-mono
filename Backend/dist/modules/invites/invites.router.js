@@ -2,7 +2,7 @@ import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
-import { notifyUser } from "../../lib/matchNotifications.js";
+import { notifyHostCompetitionInviteAccepted, notifyHostPlayerJoinedMatch, notifyUser, } from "../../lib/matchNotifications.js";
 async function eventSummaryForEventId(eventId) {
     if (!eventId)
         return null;
@@ -213,6 +213,25 @@ invitesRouter.post("/accept", async (req, res) => {
         }
     }
     const eventSummary = await eventSummaryForEventId(updated.eventId);
+    if (eventSummary && updated.senderEmail) {
+        if (eventSummary.kind === "match") {
+            await notifyHostPlayerJoinedMatch({
+                hostEmail: updated.senderEmail,
+                joinerEmail: email,
+                matchId: eventSummary.id,
+                matchTitle: eventSummary.title,
+                viaInvite: true,
+            });
+        }
+        else {
+            await notifyHostCompetitionInviteAccepted({
+                hostEmail: updated.senderEmail,
+                joinerEmail: email,
+                competitionId: eventSummary.id,
+                competitionName: eventSummary.title,
+            });
+        }
+    }
     return res.json({ ...updated, eventSummary });
 });
 invitesRouter.post("/decline", async (req, res) => {
