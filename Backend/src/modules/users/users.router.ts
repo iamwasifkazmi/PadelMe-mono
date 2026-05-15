@@ -5,6 +5,7 @@ import { distanceKmBetweenUsers } from "../../lib/geo.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emailsEqual } from "../../lib/emailsCi.js";
 import { scheduledNonInstantSlotIsExpired } from "../../lib/matchSchedule.js";
+import { ageFromUtcDateOfBirth } from "../../lib/ageFromDob.js";
 
 export const usersRouter = Router();
 
@@ -185,6 +186,9 @@ usersRouter.patch("/me", async (req, res) => {
 
   const payload = req.body as Partial<{
     fullName: string;
+    firstName: string | null;
+    lastName: string | null;
+    dateOfBirth: string | null;
     bio: string;
     location: string | null;
     locationName: string | null;
@@ -219,27 +223,51 @@ usersRouter.patch("/me", async (req, res) => {
       fullName: payload.fullName ?? existing.fullName ?? undefined,
       bio: payload.bio ?? existing.bio ?? undefined,
       photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
-        photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
-        age: payload.age ?? existing.age ?? undefined,
-        gender: payload.gender ?? existing.gender ?? undefined,
-        skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
-        skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
-        skillConfidence: payload.skillConfidence ?? existing.skillConfidence ?? undefined,
-        preferredPosition: payload.preferredPosition ?? existing.preferredPosition ?? undefined,
-        availabilityDays: payload.availabilityDays ?? existing.availabilityDays ?? undefined,
-        availabilityTimes: payload.availabilityTimes ?? existing.availabilityTimes ?? undefined,
-        travelRadiusKm: payload.travelRadiusKm ?? existing.travelRadiusKm ?? undefined,
-        useCurrentLocation: payload.useCurrentLocation ?? existing.useCurrentLocation ?? undefined,
-        matchTypePreference: payload.matchTypePreference ?? existing.matchTypePreference ?? undefined,
-        matchFormatPreference: payload.matchFormatPreference ?? existing.matchFormatPreference ?? undefined,
-        tags: payload.tags ?? existing.tags ?? undefined,
-        profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
-        notifyInstantPlay: payload.notifyInstantPlay ?? existing.notifyInstantPlay ?? undefined,
-        notifyNearbyMatches: payload.notifyNearbyMatches ?? existing.notifyNearbyMatches ?? undefined,
-        notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
-        notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
-        profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
+      photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+      gender: payload.gender ?? existing.gender ?? undefined,
+      skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
+      skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
+      skillConfidence: payload.skillConfidence ?? existing.skillConfidence ?? undefined,
+      preferredPosition: payload.preferredPosition ?? existing.preferredPosition ?? undefined,
+      availabilityDays: payload.availabilityDays ?? existing.availabilityDays ?? undefined,
+      availabilityTimes: payload.availabilityTimes ?? existing.availabilityTimes ?? undefined,
+      travelRadiusKm: payload.travelRadiusKm ?? existing.travelRadiusKm ?? undefined,
+      useCurrentLocation: payload.useCurrentLocation ?? existing.useCurrentLocation ?? undefined,
+      matchTypePreference: payload.matchTypePreference ?? existing.matchTypePreference ?? undefined,
+      matchFormatPreference: payload.matchFormatPreference ?? existing.matchFormatPreference ?? undefined,
+      tags: payload.tags ?? existing.tags ?? undefined,
+      profileVisibility: payload.profileVisibility ?? existing.profileVisibility ?? undefined,
+      notifyInstantPlay: payload.notifyInstantPlay ?? existing.notifyInstantPlay ?? undefined,
+      notifyNearbyMatches: payload.notifyNearbyMatches ?? existing.notifyNearbyMatches ?? undefined,
+      notifyMatchInvites: payload.notifyMatchInvites ?? existing.notifyMatchInvites ?? undefined,
+      notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
+      profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
     };
+
+    if ("firstName" in payload) {
+      const t = payload.firstName != null ? String(payload.firstName).trim() : "";
+      data.firstName = t.length > 0 ? t : null;
+    }
+    if ("lastName" in payload) {
+      const t = payload.lastName != null ? String(payload.lastName).trim() : "";
+      data.lastName = t.length > 0 ? t : null;
+    }
+    if ("dateOfBirth" in payload) {
+      const raw = payload.dateOfBirth;
+      if (raw === null || raw === "") {
+        data.dateOfBirth = null;
+        data.age = null;
+      } else if (typeof raw === "string") {
+        const d = new Date(raw);
+        if (!Number.isNaN(d.getTime())) {
+          data.dateOfBirth = d;
+          data.age = ageFromUtcDateOfBirth(d);
+        }
+      }
+    } else if ("age" in payload) {
+      data.age = payload.age ?? existing.age ?? undefined;
+    }
+
     if ("location" in payload) data.location = payload.location ?? undefined;
     if ("locationName" in payload) data.locationName = payload.locationName ?? undefined;
     if ("locationLat" in payload) data.locationLat = payload.locationLat ?? undefined;

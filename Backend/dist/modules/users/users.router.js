@@ -5,6 +5,7 @@ import { distanceKmBetweenUsers } from "../../lib/geo.js";
 import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emailsEqual } from "../../lib/emailsCi.js";
 import { scheduledNonInstantSlotIsExpired } from "../../lib/matchSchedule.js";
+import { ageFromUtcDateOfBirth } from "../../lib/ageFromDob.js";
 export const usersRouter = Router();
 function buildDisplayNameFromEmail(email) {
     const baseName = email.split("@")[0] || "Player";
@@ -158,7 +159,6 @@ usersRouter.patch("/me", async (req, res) => {
             bio: payload.bio ?? existing.bio ?? undefined,
             photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
             photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
-            age: payload.age ?? existing.age ?? undefined,
             gender: payload.gender ?? existing.gender ?? undefined,
             skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
             skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,
@@ -178,6 +178,31 @@ usersRouter.patch("/me", async (req, res) => {
             notifyTournaments: payload.notifyTournaments ?? existing.notifyTournaments ?? undefined,
             profileComplete: payload.profileComplete ?? existing.profileComplete ?? undefined,
         };
+        if ("firstName" in payload) {
+            const t = payload.firstName != null ? String(payload.firstName).trim() : "";
+            data.firstName = t.length > 0 ? t : null;
+        }
+        if ("lastName" in payload) {
+            const t = payload.lastName != null ? String(payload.lastName).trim() : "";
+            data.lastName = t.length > 0 ? t : null;
+        }
+        if ("dateOfBirth" in payload) {
+            const raw = payload.dateOfBirth;
+            if (raw === null || raw === "") {
+                data.dateOfBirth = null;
+                data.age = null;
+            }
+            else if (typeof raw === "string") {
+                const d = new Date(raw);
+                if (!Number.isNaN(d.getTime())) {
+                    data.dateOfBirth = d;
+                    data.age = ageFromUtcDateOfBirth(d);
+                }
+            }
+        }
+        else if ("age" in payload) {
+            data.age = payload.age ?? existing.age ?? undefined;
+        }
         if ("location" in payload)
             data.location = payload.location ?? undefined;
         if ("locationName" in payload)

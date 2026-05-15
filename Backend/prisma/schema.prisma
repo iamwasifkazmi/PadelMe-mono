@@ -60,6 +60,10 @@ model User {
   authProvider       String    @default("local")
   isEmailVerified    Boolean   @default(false)
   fullName           String?
+  firstName          String?
+  lastName           String?
+  /** Calendar date of birth (time component ignored for age). */
+  dateOfBirth        DateTime?
   bio                String?
   photoUrl           String?
   age                Int?

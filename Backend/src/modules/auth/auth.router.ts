@@ -83,6 +83,11 @@ const transporter =
 
 export const authRouter = Router();
 
+/** Client should route to onboarding until profile is completed (name, DOB, skill, location, etc.). */
+function shouldSendUserToOnboarding(user: { profileComplete: boolean }): boolean {
+  return !user.profileComplete;
+}
+
 const googleOAuthClient = new OAuth2Client();
 
 /** Comma-separated OAuth client IDs whose tokens the backend will accept (web + iOS + Android from Google Cloud Console). */
@@ -246,7 +251,7 @@ authRouter.post("/verify-register-otp", async (req, res) => {
   const token = signToken(updated);
   return res.json({
     token,
-    isNewUser: true,
+    isNewUser: shouldSendUserToOnboarding(updated),
     user: {
       id: updated.id,
       email: updated.email,
@@ -276,7 +281,7 @@ authRouter.post("/login", async (req, res) => {
   const token = signToken(user);
   return res.json({
     token,
-    isNewUser: false,
+    isNewUser: shouldSendUserToOnboarding(user),
     user: {
       id: user.id,
       email: user.email,
@@ -347,8 +352,7 @@ authRouter.post("/google", async (req, res) => {
         },
       });
 
-  /** Onboarding until profile is completed (not "first insert only" — avoids skipping when a row already existed). */
-  const isNewUser = !user.profileComplete;
+  const isNewUser = shouldSendUserToOnboarding(user);
   const token = signToken(user);
   return res.json({
     token,
@@ -432,7 +436,7 @@ authRouter.post("/apple", async (req, res) => {
     const token = signToken(user);
     return res.json({
       token,
-      isNewUser: !user.profileComplete,
+      isNewUser: shouldSendUserToOnboarding(user),
       user: { id: user.id, email: user.email, fullName: user.fullName },
     });
   }
@@ -453,7 +457,7 @@ authRouter.post("/apple", async (req, res) => {
   const token = signToken(user);
   return res.json({
     token,
-    isNewUser: !user.profileComplete,
+    isNewUser: shouldSendUserToOnboarding(user),
     user: { id: user.id, email: user.email, fullName: user.fullName },
   });
 });
