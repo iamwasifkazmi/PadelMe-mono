@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
 import { appleEmailVerifiedClaim, verifyAppleIdentityToken } from "../../lib/appleIdToken.js";
+import { userNeedsOnboarding } from "../../lib/profileOnboarding.js";
 
 const registerSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
@@ -83,9 +84,8 @@ const transporter =
 
 export const authRouter = Router();
 
-/** Client should route to onboarding until profile is completed (name, DOB, skill, location, etc.). */
-function shouldSendUserToOnboarding(user: { profileComplete: boolean }): boolean {
-  return !user.profileComplete;
+function shouldSendUserToOnboarding(user: Parameters<typeof userNeedsOnboarding>[0]): boolean {
+  return userNeedsOnboarding(user);
 }
 
 const googleOAuthClient = new OAuth2Client();
@@ -184,11 +184,7 @@ authRouter.post("/register", async (req, res) => {
           passwordHash,
           authProvider: "local",
           isEmailVerified: false,
-          location: "Dubai, United Arab Emirates",
-          locationName: "Dubai, United Arab Emirates",
-          locationLat: 25.2048,
-          locationLng: 55.2708,
-          skillLabel: "intermediate",
+          profileComplete: false,
         },
       });
 
@@ -348,7 +344,7 @@ authRouter.post("/google", async (req, res) => {
           passwordHash: null,
           authProvider: "google",
           isEmailVerified: true,
-          skillLabel: "intermediate",
+          profileComplete: false,
         },
       });
 
@@ -430,7 +426,7 @@ authRouter.post("/apple", async (req, res) => {
         passwordHash: null,
         authProvider: "apple",
         isEmailVerified: true,
-        skillLabel: "intermediate",
+        profileComplete: false,
       },
     });
     const token = signToken(user);

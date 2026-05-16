@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.git/
+.env
+.env.*
+cloud-run.env.yaml
+*.log
+coverage/

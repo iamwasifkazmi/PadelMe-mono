@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deploy Backend to Cloud Run from this directory's parent (Backend/).
 # - Builds with Dockerfile via Cloud Build (--source).
-# - Merges Google Sign-In env (does not remove your existing DATABASE_URL, JWT_SECRET, etc.).
+# - Syncs env from Backend/.env → cloud-run.env.yaml (see scripts/build-cloud-run-env-yaml.mjs).
+# - Uses .gcloudignore so node_modules is not uploaded with --source.
 #
 # Prereqs: gcloud CLI, project with Cloud Run + Cloud Build API, permission to deploy.
 #
@@ -43,18 +44,40 @@ gcloud run deploy "$SERVICE" \
   --region="$REGION" \
   --source=. \
   --platform=managed \
+  --allow-unauthenticated \
+  --no-invoker-iam-check \
   --quiet
 
 echo "==> Deploy finished."
 
+ENV_FILEYAML="$BACKEND_ROOT/cloud-run.env.yaml"
+if [[ "${SKIP_ENV_FILE:-}" == "1" ]]; then
+  echo "==> SKIP_ENV_FILE=1 — not applying --env-vars-file."
+else
+  if [[ -f "$BACKEND_ROOT/.env" ]] && [[ "${SKIP_ENV_FILE:-}" != "1" ]]; then
+    echo "==> Generating Cloud Run env file from Backend/.env …"
+    (cd "$BACKEND_ROOT" && node scripts/build-cloud-run-env-yaml.mjs >/dev/null)
+  fi
+  if [[ -f "$ENV_FILEYAML" ]]; then
+    echo "==> Applying Cloud Run env vars from cloud-run.env.yaml (replaces existing env vars) …"
+    gcloud run services update "$SERVICE" \
+      --project="$PROJECT" \
+      --region="$REGION" \
+      --env-vars-file="$ENV_FILEYAML" \
+      --quiet
+  else
+    echo "==> No cloud-run.env.yaml (and no .env to generate from). Set SKIP_GOOGLE_ENV=1 or add Backend/.env and re-run."
+  fi
+fi
+
 if [[ "${SKIP_GOOGLE_ENV:-}" == "1" || "${SKIP_OAUTH_ENV:-}" == "1" ]]; then
-  echo "==> SKIP_GOOGLE_ENV or SKIP_OAUTH_ENV set — not updating Cloud Run env vars."
+  echo "==> SKIP_GOOGLE_ENV or SKIP_OAUTH_ENV set — skipping OAuth env merge."
   exit 0
 fi
 
 DEFAULT_APPLE_CLIENT_ID="${APPLE_CLIENT_ID:-com.mipadel}"
 
-echo "==> Merging GOOGLE_OAUTH_CLIENT_IDS and APPLE_CLIENT_ID (two steps — avoids gcloud comma/delimiter bugs)..."
+echo "==> Merging GOOGLE_OAUTH_CLIENT_IDS and APPLE_CLIENT_ID (two steps — avoids gcloud comma/delimiter bugs)…"
 
 # Comma inside GOOGLE value: use alternate delimiter (see gcloud topic escaping). Do not combine with a second key in one flag — it can corrupt names (e.g. ^APPLE_CLIENT_ID).
 gcloud run services update "$SERVICE" \
@@ -70,3 +93,6 @@ gcloud run services update "$SERVICE" \
   --quiet
 
 echo "==> Done. Google: Web+iOS client IDs. Apple: APPLE_CLIENT_ID=${DEFAULT_APPLE_CLIENT_ID}"
+
+SERVICE_URL="$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')"
+echo "==> Service URL: $SERVICE_URL"

@@ -6,6 +6,7 @@ import { resolveEffectiveElo } from "../../lib/elo.js";
 import { emailsEqual } from "../../lib/emailsCi.js";
 import { scheduledNonInstantSlotIsExpired } from "../../lib/matchSchedule.js";
 import { ageFromUtcDateOfBirth } from "../../lib/ageFromDob.js";
+import { userNeedsOnboarding } from "../../lib/profileOnboarding.js";
 
 export const usersRouter = Router();
 
@@ -173,7 +174,11 @@ usersRouter.get("/me", async (req, res) => {
   const ps = await prisma.playerStats.findUnique({ where: { userId: user.id } });
   const stored = ps?.eloRating ?? user.eloRating;
   const eloRating = resolveEffectiveElo(stored, ps?.lastMatchAt ?? null);
-  return res.json({ ...user, eloRating });
+  return res.json({
+    ...user,
+    eloRating,
+    needsOnboarding: userNeedsOnboarding(user),
+  });
 });
 
 usersRouter.patch("/me", async (req, res) => {
