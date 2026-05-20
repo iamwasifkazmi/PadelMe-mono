@@ -65,23 +65,23 @@ ratingsRouter.post("/match", async (req, res) => {
     });
 
     if (existing) {
-      await prisma.rating.update({
-        where: { id: existing.id },
-        data: { overall, comment: row.comment?.trim() || null },
-      });
-    } else {
-      await prisma.rating.create({
-        data: {
-          matchId,
-          raterEmail: raterCanonical,
-          ratedEmail: ratedCanonical,
-          raterId: rater.id,
-          ratedId: rated?.id ?? undefined,
-          overall,
-          comment: row.comment?.trim() || undefined,
-        },
+      return res.status(409).json({
+        error: "You have already rated this player for this match",
+        ratedEmail: ratedCanonical,
       });
     }
+
+    await prisma.rating.create({
+      data: {
+        matchId,
+        raterEmail: raterCanonical,
+        ratedEmail: ratedCanonical,
+        raterId: rater.id,
+        ratedId: rated?.id ?? undefined,
+        overall,
+        comment: row.comment?.trim() || undefined,
+      },
+    });
 
     await syncUserAverageRating(ratedCanonical);
   }

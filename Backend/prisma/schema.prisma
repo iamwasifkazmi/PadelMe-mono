@@ -224,32 +224,68 @@ model Match {
 }
 
 model Competition {
-  id              String             @id @default(cuid())
-  name            String
-  description     String?
-  type            CompetitionType
-  format          CompetitionFormat
-  status          CompetitionStatus  @default(registration)
-  visibility      String             @default("public")
-  locationName    String?
-  locationAddress String?
-  locationLat     Float?
-  locationLng     Float?
-  startDate       DateTime?
-  endDate         DateTime?
-  skillLevel      String?
-  maxPlayers      Int?
-  participants    String[]           @default([])
-  hostEmail       String?
-  entryFee        Float?
-  prizePool       Float?
-  scoringMode     String?
-  numSets         Int?
-  gamesPerSet     Int?
-  tiebreakRule    String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  matches         CompetitionMatch[]
+  id                       String             @id @default(cuid())
+  name                     String
+  description              String?
+  type                     CompetitionType
+  format                   CompetitionFormat
+  status                   CompetitionStatus  @default(registration)
+  visibility               String             @default("public")
+  invitedEmails            String[]           @default([])
+  locationName             String?
+  locationAddress          String?
+  locationLat              Float?
+  locationLng              Float?
+  startDate                DateTime?
+  endDate                  DateTime?
+  skillLevel               String?
+  maxPlayers               Int?
+  participants             String[]           @default([])
+  hostEmail                String?
+  entryFee                 Float?
+  prizeType                String?
+  prizeDescription         String?
+  prizePool                Float?
+  isVerifiedOnly           Boolean            @default(false)
+  weeklyDay                String?
+  leagueWeeks              Int?
+  currentWeek              Int                @default(0)
+  teamStructure            String             @default("singles")
+  genderRequirement        String             @default("any")
+  ageMin                   Int?
+  ageMax                   Int?
+  skillRangeMin            Int?
+  skillRangeMax            Int?
+  minRatingThreshold       Float?
+  verificationRequirement  String             @default("none")
+  pointsWin                Int                @default(3)
+  pointsLoss               Int                @default(0)
+  pointsDraw               Int                @default(1)
+  allowDraws               Boolean            @default(false)
+  scoringMode              String?
+  numSets                  Int?
+  gamesPerSet              Int?
+  tiebreakRule             String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  matches                  CompetitionMatch[]
+}
+
+model Venue {
+  id        String   @id @default(cuid())
+  name      String
+  sport     String   @default("padel")
+  address   String?
+  city      String
+  postcode  String?
+  lat       Float?
+  lng       Float?
+  addedBy   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sport])
+  @@index([city])
 }
 
 model CompetitionMatch {
@@ -263,11 +299,18 @@ model CompetitionMatch {
   player2Name     String?
   teamAEmails     String[]  @default([])
   teamBEmails     String[]  @default([])
-  scorePlayer1    String?
-  scorePlayer2    String?
-  winnerEmail     String?
-  winnerTeam      String?
-  status          String    @default("scheduled")
+  scorePlayer1       String?
+  scorePlayer2       String?
+  submittedScoreP1   String?
+  submittedScoreP2   String?
+  submittedBy        String?
+  confirmedBy        String?
+  rejectedBy         String?
+  rejectionReason    String?
+  evidenceUrl        String?
+  winnerEmail        String?
+  winnerTeam         String?
+  status             String    @default("scheduled")
   scheduledDate   DateTime?
   scheduledTime   String?
   matchOrder      Int?

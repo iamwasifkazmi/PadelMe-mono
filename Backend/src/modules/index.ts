@@ -12,6 +12,7 @@ import { authRouter } from "./auth/auth.router.js";
 import { ratingsRouter } from "./ratings/ratings.router.js";
 import { communityRouter } from "./community/community.router.js";
 import { maintenanceRouter } from "./maintenance/maintenance.router.js";
+import { venuesRouter } from "./venues/venues.router.js";
 
 export const apiRouter = Router();
 
@@ -19,6 +20,7 @@ apiRouter.use("/users", usersRouter);
 apiRouter.use("/matches", matchesRouter);
 apiRouter.use("/ratings", ratingsRouter);
 apiRouter.use("/competitions", competitionsRouter);
+apiRouter.use("/venues", venuesRouter);
 apiRouter.use("/conversations", conversationsRouter);
 apiRouter.use("/notifications", notificationsRouter);
 apiRouter.use("/instant-play", instantPlayRouter);

@@ -154,6 +154,18 @@ async function issueEmailVerificationOtp(email: string) {
   await sendOtpEmail(email, code, "registration");
 }
 
+async function issuePasswordResetOtp(email: string) {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  await prisma.passwordResetOtp.create({
+    data: {
+      userEmail: email,
+      code,
+      expiresAt: new Date(Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000),
+    },
+  });
+  await sendOtpEmail(email, code, "reset");
+}
+
 authRouter.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -470,15 +482,22 @@ authRouter.post("/forgot-password", async (req, res) => {
     return res.json({ success: true });
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  await prisma.passwordResetOtp.create({
-    data: {
-      userEmail: email,
-      code,
-      expiresAt: new Date(Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000),
-    },
-  });
-  await sendOtpEmail(email, code, "reset");
+  await issuePasswordResetOtp(email);
+  return res.json({ success: true });
+});
+
+authRouter.post("/resend-reset-otp", async (req, res) => {
+  const email = String(req.body?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email) return res.status(400).json({ error: "email is required" });
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    return res.json({ success: true });
+  }
+
+  await issuePasswordResetOtp(email);
   return res.json({ success: true });
 });
 
