@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { ensureStarterVenues } from "./starterVenues.js";
 
 export type VenueSearchResult = {
   id?: string;
@@ -10,9 +11,25 @@ export type VenueSearchResult = {
   source: "internal" | "map";
 };
 
+const NOMINATIM_UA =
+  process.env.NOMINATIM_USER_AGENT ||
+  "MiPadel/1.0 (+https://mipadel.app; venue-search; contact@mipadel.co.uk)";
+
+const OVERPASS_ENDPOINTS = (
+  process.env.OVERPASS_URLS ||
+  "https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 function sportTag(sport: string): string {
   const s = (sport || "padel").toLowerCase();
   return { padel: "padel", tennis: "tennis", pickleball: "pickleball" }[s] || s;
+}
+
+function looksLikePadelPlace(text: string): boolean {
+  return /padel|paddle tennis|pádel/i.test(text);
 }
 
 export async function searchInternalVenues(
@@ -22,6 +39,8 @@ export async function searchInternalVenues(
 ): Promise<VenueSearchResult[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
+
+  await ensureStarterVenues();
 
   const sportLower = sportTag(sport);
   const all = await prisma.venue.findMany({
@@ -50,22 +69,134 @@ export async function searchInternalVenues(
     }));
 }
 
-async function geocodeCenter(query: string): Promise<{ lat: string; lon: string } | null> {
-  const url =
+type NominatimHit = {
+  lat: string;
+  lon: string;
+  display_name: string;
+  name?: string;
+  type?: string;
+  class?: string;
+};
+
+async function nominatimSearch(query: string, limit = 8): Promise<NominatimHit[]> {
+  const country = (process.env.VENUE_SEARCH_COUNTRY || "gb").trim().toLowerCase();
+  let url =
     "https://nominatim.openstreetmap.org/search?q=" +
     encodeURIComponent(query) +
-    "&format=json&limit=1";
+    "&format=json&limit=" +
+    limit +
+    "&addressdetails=1";
+  if (country && country !== "any") {
+    url += "&countrycodes=" + encodeURIComponent(country);
+  }
   const res = await fetch(url, {
     headers: {
       Accept: "application/json",
       "Accept-Language": "en",
-      "User-Agent": "PadelMe/1.0 (venue search; contact@padelme.app)",
+      "User-Agent": NOMINATIM_UA,
     },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) return null;
-  const data = (await res.json()) as Array<{ lat: string; lon: string }>;
-  return data[0] ?? null;
+  if (!res.ok) return [];
+  return (await res.json()) as NominatimHit[];
+}
+
+async function geocodeCenter(query: string): Promise<{ lat: string; lon: string } | null> {
+  const hits = await nominatimSearch(query, 1);
+  return hits[0] ? { lat: hits[0].lat, lon: hits[0].lon } : null;
+}
+
+/** Direct name/place search — finds clubs whose OSM listing matches "padel" + area text. */
+async function searchNominatimPadelPlaces(
+  query: string,
+  seen: Set<string>,
+): Promise<VenueSearchResult[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const variants: string[] = [];
+  if (looksLikePadelPlace(q)) {
+    variants.push(q);
+  } else {
+    variants.push(`padel ${q}`, `${q} padel`, `padel club ${q}`, `padel court ${q}`);
+  }
+
+  const out: VenueSearchResult[] = [];
+  for (const term of variants) {
+    const hits = await nominatimSearch(term, 10);
+    for (const hit of hits) {
+      const title = (hit.name || hit.display_name.split(",")[0] || "").trim();
+      if (!title) continue;
+      const key = title.toLowerCase();
+      if (seen.has(key)) continue;
+
+      const display = hit.display_name || title;
+      const isRelevant =
+        looksLikePadelPlace(display) ||
+        looksLikePadelPlace(title) ||
+        /sports|leisure|pitch|club|centre|center|court|gym/i.test(display);
+
+      if (!isRelevant) continue;
+
+      seen.add(key);
+      const parts = display.split(",").map((s) => s.trim());
+      const city = parts.length > 1 ? parts[parts.length - 3] || parts[1] : undefined;
+      out.push({
+        name: title,
+        address: display,
+        city,
+        lat: Number(hit.lat),
+        lng: Number(hit.lon),
+        source: "map",
+      });
+    }
+  }
+  return out.filter((r) => Number.isFinite(r.lat!) && Number.isFinite(r.lng!));
+}
+
+async function runOverpassQuery(oq: string): Promise<VenueSearchResult[]> {
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        body: "data=" + encodeURIComponent(oq),
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          "User-Agent": NOMINATIM_UA,
+        },
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = await res.text();
+      if (!res.ok || text.startsWith("<")) continue;
+      const od = JSON.parse(text) as {
+        elements?: Array<{
+          tags?: Record<string, string>;
+          lat?: number;
+          lon?: number;
+          center?: { lat: number; lon: number };
+        }>;
+      };
+
+      const results: VenueSearchResult[] = [];
+      for (const el of od.elements || []) {
+        if (!el.tags?.name) continue;
+        const addr = [el.tags["addr:street"], el.tags["addr:city"]].filter(Boolean).join(", ");
+        results.push({
+          name: el.tags.name,
+          address: addr || "",
+          city: el.tags["addr:city"],
+          lat: el.lat ?? el.center?.lat ?? null,
+          lng: el.lon ?? el.center?.lon ?? null,
+          source: "map",
+        });
+      }
+      return results;
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
 async function searchOverpassPadelCourts(
@@ -73,56 +204,28 @@ async function searchOverpassPadelCourts(
   centerLon: string,
   sport: string,
   radiusM: number,
+  queryFallback: string,
 ): Promise<VenueSearchResult[]> {
   const sportTagVal = sportTag(sport);
+  // Broader than sport=padel only — many UK courts are leisure=pitch / sports_centre with padel in the name.
   const oq =
-    '[out:json][timeout:15];(node["sport"~"' +
-    sportTagVal +
-    '",i](around:' +
-    radiusM +
-    "," +
-    centerLat +
-    "," +
-    centerLon +
-    ');way["sport"~"' +
-    sportTagVal +
-    '",i](around:' +
-    radiusM +
-    "," +
-    centerLat +
-    "," +
-    centerLon +
-    "););out center 20;";
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    body: "data=" + encodeURIComponent(oq),
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) return [];
-  const od = (await res.json()) as {
-    elements?: Array<{
-      tags?: Record<string, string>;
-      lat?: number;
-      lon?: number;
-      center?: { lat: number; lon: number };
-    }>;
-  };
+    "[out:json][timeout:25];(" +
+    `node["sport"="${sportTagVal}"](around:${radiusM},${centerLat},${centerLon});` +
+    `way["sport"="${sportTagVal}"](around:${radiusM},${centerLat},${centerLon});` +
+    `node["sport"="tennis"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    `way["sport"="tennis"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    `node["leisure"="pitch"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    `way["leisure"="pitch"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    `node["leisure"="sports_centre"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    `way["leisure"="sports_centre"]["name"~"padel",i](around:${radiusM},${centerLat},${centerLon});` +
+    ");out center 25;";
 
-  const results: VenueSearchResult[] = [];
-  for (const el of od.elements || []) {
-    if (!el.tags?.name) continue;
-    const addr = [el.tags["addr:street"], el.tags["addr:city"]].filter(Boolean).join(", ");
-    results.push({
-      name: el.tags.name,
-      address: addr || "",
-      city: el.tags["addr:city"],
-      lat: el.lat ?? el.center?.lat ?? null,
-      lng: el.lon ?? el.center?.lon ?? null,
-      source: "map",
-    });
-  }
-  return results;
+  const raw = await runOverpassQuery(oq);
+  return raw.map((r) => ({
+    ...r,
+    address: r.address || queryFallback,
+    city: r.city || queryFallback,
+  }));
 }
 
 export async function searchVenues(
@@ -130,12 +233,31 @@ export async function searchVenues(
   sport = "padel",
   expandedRadius = false,
 ): Promise<VenueSearchResult[]> {
-  const internal = await searchInternalVenues(query, sport);
+  const q = query.trim();
+  let internal: VenueSearchResult[] = [];
+  try {
+    internal = await searchInternalVenues(q, sport);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[venueSearch] internal DB search failed:", e);
+  }
   const seen = new Set(internal.map((r) => r.name.toLowerCase()));
 
-  let overpass: VenueSearchResult[] = [];
+  const mapResults: VenueSearchResult[] = [];
+
   try {
-    const center = await geocodeCenter(query);
+    const nominatimPlaces = await searchNominatimPadelPlaces(q, seen);
+    for (const r of nominatimPlaces) {
+      seen.add(r.name.toLowerCase());
+      mapResults.push(r);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[venueSearch] nominatim padel places failed:", e);
+  }
+
+  try {
+    const center = await geocodeCenter(q);
     if (center) {
       const radius = expandedRadius ? 40000 : 20000;
       const raw = await searchOverpassPadelCourts(
@@ -143,14 +265,21 @@ export async function searchVenues(
         center.lon,
         sport,
         radius,
+        q,
       );
-      overpass = raw.filter((r) => !seen.has(r.name.toLowerCase()));
+      for (const r of raw) {
+        const key = r.name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        mapResults.push(r);
+      }
     }
-  } catch {
-    // silent fallback — internal results still returned
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[venueSearch] overpass failed:", e);
   }
 
-  return [...internal, ...overpass];
+  return [...internal, ...mapResults];
 }
 
 export async function saveVenueFromMapPick(
