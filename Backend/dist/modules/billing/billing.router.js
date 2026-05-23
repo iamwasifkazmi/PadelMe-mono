@@ -2,27 +2,29 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma.js";
 import { requireAuthUser } from "../../lib/jwtAuth.js";
 import { authUserPayload } from "../../lib/authUserPayload.js";
-import { activatePremiumFromStripe, ensureStripeCustomer, getStripe, resolveUserIdFromStripeEvent, stripeConfigured, } from "../../lib/stripeBilling.js";
+import { appPublicOrigin } from "../../lib/appDomain.js";
+import { activatePremiumFromStripe, ensureStripeCustomer, getStripe, resolveUserIdFromStripeEvent, getStripePriceId, stripeConfigured, stripeSecretConfigured, } from "../../lib/stripeBilling.js";
 export const billingRouter = Router();
 function appBaseUrl() {
-    return (process.env.APP_PUBLIC_URL?.trim() ||
-        process.env.STRIPE_RETURN_BASE_URL?.trim() ||
-        "https://mipadel.app");
+    return appPublicOrigin();
 }
-billingRouter.get("/configured", (_req, res) => {
-    res.json({ stripe: stripeConfigured() });
+billingRouter.get("/configured", async (_req, res) => {
+    res.json({ stripe: await stripeConfigured() });
 });
 billingRouter.post("/checkout-session", async (req, res) => {
     const user = await requireAuthUser(req);
     if (!user)
         return res.status(401).json({ error: "Unauthorized" });
-    if (!stripeConfigured()) {
+    if (!(await stripeConfigured())) {
+        const hint = stripeSecretConfigured()
+            ? "Run npm run seed:stripe to store the Premium price in the database"
+            : "Set STRIPE_SECRET_KEY and run npm run seed:stripe";
         return res.status(503).json({
-            error: "Stripe is not configured (set STRIPE_SECRET_KEY and STRIPE_PRICE_ID)",
+            error: `Stripe is not configured (${hint})`,
             code: "stripe_not_configured",
         });
     }
-    const priceId = process.env.STRIPE_PRICE_ID.trim();
+    const priceId = (await getStripePriceId());
     const stripe = getStripe();
     const customerId = await ensureStripeCustomer(user);
     const successUrl = process.env.STRIPE_SUCCESS_URL?.trim() ||
@@ -47,7 +49,7 @@ billingRouter.post("/portal-session", async (req, res) => {
     const user = await requireAuthUser(req);
     if (!user)
         return res.status(401).json({ error: "Unauthorized" });
-    if (!stripeConfigured()) {
+    if (!(await stripeConfigured())) {
         return res.status(503).json({ error: "Stripe is not configured" });
     }
     const customerId = await ensureStripeCustomer(user);
@@ -64,7 +66,7 @@ billingRouter.get("/sync-session", async (req, res) => {
     if (!user)
         return res.status(401).json({ error: "Unauthorized" });
     const sessionId = String(req.query.session_id || "").trim();
-    if (!sessionId || !stripeConfigured()) {
+    if (!sessionId || !(await stripeConfigured())) {
         return res.json({ user: authUserPayload(user) });
     }
     const stripe = getStripe();

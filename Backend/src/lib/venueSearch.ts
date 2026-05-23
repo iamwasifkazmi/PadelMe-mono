@@ -1,3 +1,4 @@
+import { appUserAgent } from "./appDomain.js";
 import { prisma } from "./prisma.js";
 import { ensureStarterVenues } from "./starterVenues.js";
 import { searchLtaPadelCourts } from "./ltaCourtFinder.js";
@@ -17,9 +18,7 @@ export type VenueSearchResult = {
   ltaRegistered?: boolean;
 };
 
-const NOMINATIM_UA =
-  process.env.NOMINATIM_USER_AGENT ||
-  "MiPadel/1.0 (+https://mipadel.app; venue-search; contact@mipadel.co.uk)";
+const NOMINATIM_UA = process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search");
 
 const OVERPASS_ENDPOINTS = (
   process.env.OVERPASS_URLS ||

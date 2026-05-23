@@ -63,7 +63,7 @@ const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "noreply@mipadel.app";
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || "MiPadel <noreply@mipadel.co.uk>";
 const OTP_EXPIRES_MINUTES = Number(process.env.OTP_EXPIRES_MINUTES || 10);
 const transporter = SMTP_HOST && SMTP_USER && SMTP_PASS
     ? nodemailer.createTransport({
@@ -471,7 +471,7 @@ authRouter.post("/subscribe", async (req, res) => {
     const user = await requireAuthUser(req);
     if (!user)
         return res.status(401).json({ error: "Unauthorized" });
-    if (stripeConfigured()) {
+    if (await stripeConfigured()) {
         return res.status(400).json({
             error: "Use POST /billing/checkout-session for Stripe subscription",
             code: "use_stripe_checkout",

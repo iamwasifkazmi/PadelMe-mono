@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
+import { INVITE_EMAIL_DOMAIN } from "../../lib/appDomain.js";
 import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
 import {
@@ -33,7 +34,10 @@ async function eventSummaryForEventId(eventId: string | null | undefined) {
 
 function isShareLinkPlaceholderEmail(receiverEmail: string) {
   const e = receiverEmail.trim().toLowerCase();
-  return e.startsWith("share.") && e.endsWith("@invite.mipadel");
+  return (
+    e.startsWith("share.") &&
+    (e.endsWith(`@${INVITE_EMAIL_DOMAIN}`) || e.endsWith("@invite.mipadel"))
+  );
 }
 
 async function userEmailForNotification(rawReceiver: string) {
@@ -113,7 +117,7 @@ invitesRouter.post("/create", async (req, res) => {
         error: "receiverEmail is required unless creating a share-link invite with eventId",
       });
     }
-    receiverEmail = `share.${token.replace(/[^a-zA-Z0-9]/g, "")}@invite.mipadel`;
+    receiverEmail = `share.${token.replace(/[^a-zA-Z0-9]/g, "")}@${INVITE_EMAIL_DOMAIN}`;
   }
   const created = await prisma.invite.create({
     data: {

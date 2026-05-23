@@ -545,3 +545,11 @@ model IDVerification {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+/** Singleton row — Stripe Premium product/price IDs (set by npm run seed:stripe or prisma db seed). */
+model BillingSettings {
+  id              String   @id @default("default")
+  stripeProductId String?
+  stripePriceId   String?
+  updatedAt       DateTime @updatedAt
+}

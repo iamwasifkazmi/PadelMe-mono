@@ -1,16 +1,13 @@
+import { appUserAgent } from "./appDomain.js";
 import type { VenueSearchResult } from "./venueSearch.js";
 
 const LTA_BASE =
   process.env.LTA_PADEL_FINDER_URL?.trim() ||
   "https://www.ltapadel.org.uk/play/find-a-padel-court/";
 
-const LTA_UA =
-  process.env.LTA_USER_AGENT ||
-  "MiPadel/1.0 (+https://mipadel.app; lta-court-finder; contact@mipadel.co.uk)";
+const LTA_UA = process.env.LTA_USER_AGENT || appUserAgent("lta-court-finder");
 
-const NOMINATIM_UA =
-  process.env.NOMINATIM_USER_AGENT ||
-  "MiPadel/1.0 (+https://mipadel.app; venue-search; contact@mipadel.co.uk)";
+const NOMINATIM_UA = process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search");
 
 export function ltaCourtFinderEnabled(): boolean {
   return process.env.LTA_PADEL_FINDER_ENABLED !== "0";

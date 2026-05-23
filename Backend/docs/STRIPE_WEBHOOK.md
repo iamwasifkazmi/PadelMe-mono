@@ -4,25 +4,24 @@ MiPadel uses **Stripe Checkout** for Premium subscriptions. After payment, Strip
 
 ## Prerequisites
 
-1. **Stripe keys in `Backend/.env`** (never commit this file):
+1. **Stripe secret in `Backend/.env`** (never commit this file):
 
    ```env
    STRIPE_SECRET_KEY=sk_test_...   # or sk_live_... in production
-   STRIPE_PRODUCT_ID=prod_...
-   STRIPE_PRICE_ID=price_...
    ```
 
-   Create product + price locally:
+   Product + Price IDs are stored in the database (`BillingSettings`), not in `.env`:
 
    ```bash
    cd Backend
    npm run seed:stripe
+   # or: npx prisma db seed   (if STRIPE_SECRET_KEY is set)
    ```
 
 2. **Backend deployed** with the same env vars on Cloud Run (see deploy section below).
 
-3. **Public HTTPS URL** for your API, e.g.  
-   `https://padelme-backend-781275999853.europe-west2.run.app`
+3. **Public HTTPS URL** for your API (custom domain), e.g.  
+   `https://mipadel.co.uk`
 
 ---
 
@@ -39,7 +38,7 @@ MiPadel uses **Stripe Checkout** for Premium subscriptions. After payment, Strip
    Example:
 
    ```
-   https://padelme-backend-781275999853.europe-west2.run.app/api/billing/webhook
+   https://mipadel.co.uk/api/billing/webhook
    ```
 
 4. **Events to send** — select at least:
@@ -138,7 +137,7 @@ after redirect (optional).
 
 | Symptom | Fix |
 |---------|-----|
-| Checkout says “Stripe not configured” | Set `STRIPE_SECRET_KEY` + `STRIPE_PRICE_ID` on Cloud Run |
+| Checkout says “Stripe not configured” | Set `STRIPE_SECRET_KEY` on Cloud Run, then run `npm run seed:stripe` against production DB |
 | Payment works but no Premium | Webhook missing or wrong `STRIPE_WEBHOOK_SECRET` |
 | Webhook returns 400 Invalid signature | Secret mismatch; use the secret from **this** endpoint only |
 | Webhook returns 503 | `STRIPE_WEBHOOK_SECRET` not set on the server |
@@ -147,10 +146,23 @@ after redirect (optional).
 
 ---
 
-## 8. Production checklist
+## 8. Auto-renewal vs webhooks
+
+| What | Who handles it |
+|------|----------------|
+| **Monthly charge** (£4.99) | **Stripe** — automatic on a recurring Price |
+| **First Premium in the app** | Webhook `checkout.session.completed` **or** `GET /billing/sync-session` after Checkout |
+| **Renewal stays Premium** | Usually no change needed — `isSubscribed` stays `true` |
+| **Cancel / card failed** | Webhook `customer.subscription.updated` / `deleted` — **requires `STRIPE_WEBHOOK_SECRET`** |
+
+Without a webhook, users can still **subscribe** (Checkout + `sync-session`), and Stripe still **charges them each month**. Your app may not know if they cancelled in Stripe until you add the webhook.
+
+---
+
+## 9. Production checklist
 
 - [ ] Switch Stripe Dashboard to **Live** mode  
-- [ ] Live `STRIPE_SECRET_KEY`, live Price ID (or run `seed:stripe` with live key)  
+- [ ] Live `STRIPE_SECRET_KEY`, then `npm run seed:stripe` (writes Price ID to DB)  
 - [ ] Live webhook endpoint on production Cloud Run URL  
 - [ ] `STRIPE_WEBHOOK_SECRET` on Cloud Run  
 - [ ] Test one real (small) subscription end-to-end  

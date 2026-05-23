@@ -1,10 +1,24 @@
 import Stripe from "stripe";
 import { prisma } from "./prisma.js";
+import { getStripeBillingIdsFromDb } from "./stripeCatalog.js";
 
 let stripeClient: Stripe | null = null;
 
-export function stripeConfigured(): boolean {
-  return Boolean(process.env.STRIPE_SECRET_KEY?.trim() && process.env.STRIPE_PRICE_ID?.trim());
+/** Sync check — secret key only. Use stripeConfiguredAsync before checkout. */
+export function stripeSecretConfigured(): boolean {
+  return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
+}
+
+export async function getStripePriceId(): Promise<string | null> {
+  const fromDb = await getStripeBillingIdsFromDb();
+  if (fromDb?.priceId) return fromDb.priceId;
+  const fromEnv = process.env.STRIPE_PRICE_ID?.trim();
+  return fromEnv || null;
+}
+
+export async function stripeConfigured(): Promise<boolean> {
+  if (!stripeSecretConfigured()) return false;
+  return Boolean(await getStripePriceId());
 }
 
 export function getStripe(): Stripe {

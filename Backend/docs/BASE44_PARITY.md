@@ -66,6 +66,6 @@ After `npx prisma db seed`:
 See `Backend/.env.example` for full list. Critical:
 
 - `DATABASE_URL`, `JWT_SECRET`, `SMTP_*`  
-- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`  
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (price ID in `BillingSettings` via `npm run seed:stripe`)  
 - `LTA_PADEL_FINDER_ENABLED=1`  
 - `STALE_MATCH_CRON_SECRET` + GCP Scheduler for leagues/stale matches  

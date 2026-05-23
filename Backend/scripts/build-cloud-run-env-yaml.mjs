@@ -69,10 +69,10 @@ const entries = Object.entries({
   ADMIN_EMAILS: process.env.ADMIN_EMAILS?.trim(),
   LTA_PADEL_FINDER_ENABLED: process.env.LTA_PADEL_FINDER_ENABLED?.trim() || "1",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY?.trim(),
-  STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID?.trim(),
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET?.trim(),
   STRIPE_SUCCESS_URL: process.env.STRIPE_SUCCESS_URL?.trim(),
   STRIPE_CANCEL_URL: process.env.STRIPE_CANCEL_URL?.trim(),
+  APP_PUBLIC_URL: process.env.APP_PUBLIC_URL?.trim() || "https://mipadel.co.uk",
 });
 
 const lines = [];

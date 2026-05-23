@@ -919,6 +919,16 @@ async function main() {
   console.log("  • Test singles open — Alex 1/2 (Horsham)");
   console.log("  • Test doubles open — Alex 1/4 (Sunderland)\n");
   console.log(`Competition: ${winterCup.name} (completed, standings + 2 box scores)\n`);
+
+  if (process.env.STRIPE_SECRET_KEY?.trim()) {
+    try {
+      const { ensureStripeBillingCatalog } = await import("../src/lib/stripeCatalog.js");
+      const { productId, priceId } = await ensureStripeBillingCatalog();
+      console.log("[stripe] BillingSettings:", { productId, priceId });
+    } catch (e) {
+      console.warn("[stripe] Skipped BillingSettings (run npm run seed:stripe):", e);
+    }
+  }
 }
 
 main()
