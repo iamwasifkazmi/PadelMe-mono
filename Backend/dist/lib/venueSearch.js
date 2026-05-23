@@ -1,8 +1,8 @@
 import { appUserAgent } from "./appDomain.js";
+import { nominatimFetchJson } from "./nominatimClient.js";
 import { prisma } from "./prisma.js";
 import { ensureStarterVenues } from "./starterVenues.js";
 import { searchLtaPadelCourts } from "./ltaCourtFinder.js";
-const NOMINATIM_UA = process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search");
 const OVERPASS_ENDPOINTS = (process.env.OVERPASS_URLS ||
     "https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter")
     .split(",")
@@ -46,25 +46,16 @@ export async function searchInternalVenues(query, sport, limit = 200) {
 }
 async function nominatimSearch(query, limit = 8) {
     const country = (process.env.VENUE_SEARCH_COUNTRY || "gb").trim().toLowerCase();
-    let url = "https://nominatim.openstreetmap.org/search?q=" +
+    let params = "q=" +
         encodeURIComponent(query) +
         "&format=json&limit=" +
         limit +
         "&addressdetails=1";
     if (country && country !== "any") {
-        url += "&countrycodes=" + encodeURIComponent(country);
+        params += "&countrycodes=" + encodeURIComponent(country);
     }
-    const res = await fetch(url, {
-        headers: {
-            Accept: "application/json",
-            "Accept-Language": "en",
-            "User-Agent": NOMINATIM_UA,
-        },
-        signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok)
-        return [];
-    return (await res.json());
+    const data = await nominatimFetchJson(params);
+    return data ?? [];
 }
 async function geocodeCenter(query) {
     const hits = await nominatimSearch(query, 1);
@@ -122,7 +113,7 @@ async function runOverpassQuery(oq) {
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
                     Accept: "application/json",
-                    "User-Agent": NOMINATIM_UA,
+                    "User-Agent": process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search"),
                 },
                 signal: AbortSignal.timeout(20000),
             });

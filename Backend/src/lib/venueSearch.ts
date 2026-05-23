@@ -1,4 +1,5 @@
 import { appUserAgent } from "./appDomain.js";
+import { nominatimFetchJson } from "./nominatimClient.js";
 import { prisma } from "./prisma.js";
 import { ensureStarterVenues } from "./starterVenues.js";
 import { searchLtaPadelCourts } from "./ltaCourtFinder.js";
@@ -17,8 +18,6 @@ export type VenueSearchResult = {
   bookingUrl?: string;
   ltaRegistered?: boolean;
 };
-
-const NOMINATIM_UA = process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search");
 
 const OVERPASS_ENDPOINTS = (
   process.env.OVERPASS_URLS ||
@@ -85,25 +84,17 @@ type NominatimHit = {
 
 async function nominatimSearch(query: string, limit = 8): Promise<NominatimHit[]> {
   const country = (process.env.VENUE_SEARCH_COUNTRY || "gb").trim().toLowerCase();
-  let url =
-    "https://nominatim.openstreetmap.org/search?q=" +
+  let params =
+    "q=" +
     encodeURIComponent(query) +
     "&format=json&limit=" +
     limit +
     "&addressdetails=1";
   if (country && country !== "any") {
-    url += "&countrycodes=" + encodeURIComponent(country);
+    params += "&countrycodes=" + encodeURIComponent(country);
   }
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "Accept-Language": "en",
-      "User-Agent": NOMINATIM_UA,
-    },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) return [];
-  return (await res.json()) as NominatimHit[];
+  const data = await nominatimFetchJson<NominatimHit[]>(params);
+  return data ?? [];
 }
 
 async function geocodeCenter(query: string): Promise<{ lat: string; lon: string } | null> {
@@ -168,7 +159,7 @@ async function runOverpassQuery(oq: string): Promise<VenueSearchResult[]> {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json",
-          "User-Agent": NOMINATIM_UA,
+          "User-Agent": process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search"),
         },
         signal: AbortSignal.timeout(20000),
       });

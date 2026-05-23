@@ -1,4 +1,5 @@
 import { appUserAgent } from "./appDomain.js";
+import { nominatimFetchJson } from "./nominatimClient.js";
 import type { VenueSearchResult } from "./venueSearch.js";
 
 const LTA_BASE =
@@ -7,32 +8,18 @@ const LTA_BASE =
 
 const LTA_UA = process.env.LTA_USER_AGENT || appUserAgent("lta-court-finder");
 
-const NOMINATIM_UA = process.env.NOMINATIM_USER_AGENT || appUserAgent("venue-search");
-
 export function ltaCourtFinderEnabled(): boolean {
   return process.env.LTA_PADEL_FINDER_ENABLED !== "0";
 }
 
 async function geocodeQuery(query: string): Promise<{ lat: string; lon: string } | null> {
   const country = (process.env.VENUE_SEARCH_COUNTRY || "gb").trim().toLowerCase();
-  let url =
-    "https://nominatim.openstreetmap.org/search?q=" +
-    encodeURIComponent(query) +
-    "&format=json&limit=1";
+  let params = "q=" + encodeURIComponent(query) + "&format=json&limit=1";
   if (country && country !== "any") {
-    url += "&countrycodes=" + encodeURIComponent(country);
+    params += "&countrycodes=" + encodeURIComponent(country);
   }
-  const res = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "Accept-Language": "en",
-      "User-Agent": NOMINATIM_UA,
-    },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { lat: string; lon: string }[];
-  return data[0] ?? null;
+  const data = await nominatimFetchJson<{ lat: string; lon: string }[]>(params);
+  return data?.[0] ?? null;
 }
 
 async function geocodePostcode(postcode: string): Promise<{ lat: number; lng: number } | null> {
