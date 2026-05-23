@@ -1,5 +1,11 @@
-# Google OAuth downloads contain secrets — keep local only
+# Google OAuth / Firebase downloads — keep local only (copy into app manually)
 assets-to-copy-from/client_secret*.json
+assets-to-copy-from/GoogleService-Info*.plist
+assets-to-copy-from/google-services*.json
+**/GoogleService-Info*.plist
+!**/GoogleService-Info.plist.example
+**/google-services.json
+!**/google-services.json.example
 
 # Secrets — never commit
 Backend/.env

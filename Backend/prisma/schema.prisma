@@ -109,6 +109,7 @@ model User {
   updatedAt          DateTime  @updatedAt
   matchesHosted      Match[]   @relation("MatchHost")
   notifications      Notification[]
+  pushDevices        PushDevice[]
   playerStats        PlayerStats?
   ratingsGiven       Rating[]  @relation("Rater")
   ratingsReceived    Rating[]  @relation("Rated")
@@ -411,6 +412,19 @@ model Notification {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   user             User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+}
+
+/** FCM device tokens for mobile push (iOS via APNs, Android native). */
+model PushDevice {
+  id        String   @id @default(cuid())
+  userEmail String
+  token     String   @unique
+  platform  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userEmail], references: [email], onDelete: Cascade)
+
+  @@index([userEmail])
 }
 
 model Rating {

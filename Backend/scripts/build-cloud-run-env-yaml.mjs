@@ -76,6 +76,7 @@ const entries = Object.entries({
   PUBLIC_API_ORIGIN:
     process.env.PUBLIC_API_ORIGIN?.trim() ||
     "https://padelme-backend-781275999853.europe-west2.run.app",
+  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID?.trim() || "mipadel-7463c",
 });
 
 const lines = [];

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { emailsEqual } from "./emailsCi.js";
+import { sendPushForNotification } from "./pushNotifications.js";
 export async function userDisplayNameForEmail(raw) {
     const u = await prisma.user.findFirst({
         where: { email: { equals: raw.trim(), mode: "insensitive" } },
@@ -67,7 +68,7 @@ export async function notifyUser(opts) {
         const relatedEntityId = opts.relatedEntityId != null && opts.relatedEntityId !== ""
             ? opts.relatedEntityId
             : matchId ?? null;
-        return await prisma.notification.create({
+        const created = await prisma.notification.create({
             data: {
                 userEmail: opts.userEmail.trim(),
                 type: opts.type,
@@ -79,6 +80,8 @@ export async function notifyUser(opts) {
                 priority: "normal",
             },
         });
+        void sendPushForNotification(created);
+        return created;
     }
     catch (err) {
         console.error("[notifyUser]", err);
