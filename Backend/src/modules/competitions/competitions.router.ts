@@ -86,6 +86,20 @@ competitionsRouter.post("/", async (req, res) => {
     return res.status(400).json({ error: "locationName is required" });
   }
 
+  const hostEmail = String(body.hostEmail || "").trim();
+  if (hostEmail) {
+    const host = await prisma.user.findFirst({
+      where: { email: { equals: hostEmail, mode: "insensitive" } },
+      select: { isSubscribed: true },
+    });
+    if (host && !host.isSubscribed) {
+      return res.status(403).json({
+        error: "Premium subscription required to create tournaments and leagues",
+        code: "subscription_required",
+      });
+    }
+  }
+
   const created = await prisma.competition.create({
     data: {
       name: body.name,

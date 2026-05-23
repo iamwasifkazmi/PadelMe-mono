@@ -6,10 +6,13 @@ import helmet from "helmet";
 import morgan from "morgan";
 import { Prisma } from "@prisma/client";
 import { apiRouter } from "./modules/index.js";
+import { handleStripeWebhook } from "./modules/billing/billing.router.js";
 dotenv.config();
 export const app = express();
 app.use(helmet());
 app.use(cors());
+/** Stripe webhooks require the raw body for signature verification. */
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), handleStripeWebhook);
 /** Score evidence may include data URLs (photos) in `evidenceUrl`; default 100kb is too small. */
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));

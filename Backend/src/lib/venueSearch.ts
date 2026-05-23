@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
 import { ensureStarterVenues } from "./starterVenues.js";
+import { searchLtaPadelCourts } from "./ltaCourtFinder.js";
 
 export type VenueSearchResult = {
   id?: string;
@@ -8,7 +9,12 @@ export type VenueSearchResult = {
   city?: string;
   lat: number | null;
   lng: number | null;
-  source: "internal" | "map";
+  source: "internal" | "map" | "lta";
+  postcode?: string;
+  distanceMiles?: number;
+  courtType?: string;
+  bookingUrl?: string;
+  ltaRegistered?: boolean;
 };
 
 const NOMINATIM_UA =
@@ -244,6 +250,19 @@ export async function searchVenues(
   const seen = new Set(internal.map((r) => r.name.toLowerCase()));
 
   const mapResults: VenueSearchResult[] = [];
+
+  try {
+    const ltaResults = await searchLtaPadelCourts(q);
+    for (const r of ltaResults) {
+      const key = r.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      mapResults.push(r);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[venueSearch] LTA court finder failed:", e);
+  }
 
   try {
     const nominatimPlaces = await searchNominatimPadelPlaces(q, seen);

@@ -7,6 +7,9 @@ import { z } from "zod";
 import { prisma } from "../../lib/prisma.js";
 import { appleEmailVerifiedClaim, verifyAppleIdentityToken } from "../../lib/appleIdToken.js";
 import { userNeedsOnboarding } from "../../lib/profileOnboarding.js";
+import { authUserPayload } from "../../lib/authUserPayload.js";
+import { requireAuthUser } from "../../lib/jwtAuth.js";
+import { stripeConfigured } from "../../lib/stripeBilling.js";
 
 const registerSchema = z.object({
   email: z.string().email().transform((v) => v.toLowerCase()),
@@ -260,11 +263,7 @@ authRouter.post("/verify-register-otp", async (req, res) => {
   return res.json({
     token,
     isNewUser: shouldSendUserToOnboarding(updated),
-    user: {
-      id: updated.id,
-      email: updated.email,
-      fullName: updated.fullName,
-    },
+    user: authUserPayload(updated),
   });
 });
 
@@ -290,11 +289,7 @@ authRouter.post("/login", async (req, res) => {
   return res.json({
     token,
     isNewUser: shouldSendUserToOnboarding(user),
-    user: {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-    },
+    user: authUserPayload(user),
   });
 });
 
@@ -365,11 +360,7 @@ authRouter.post("/google", async (req, res) => {
   return res.json({
     token,
     isNewUser,
-    user: {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-    },
+    user: authUserPayload(user),
   });
 });
 
@@ -445,7 +436,7 @@ authRouter.post("/apple", async (req, res) => {
     return res.json({
       token,
       isNewUser: shouldSendUserToOnboarding(user),
-      user: { id: user.id, email: user.email, fullName: user.fullName },
+      user: authUserPayload(user),
     });
   }
 
@@ -466,7 +457,7 @@ authRouter.post("/apple", async (req, res) => {
   return res.json({
     token,
     isNewUser: shouldSendUserToOnboarding(user),
-    user: { id: user.id, email: user.email, fullName: user.fullName },
+    user: authUserPayload(user),
   });
 });
 
@@ -538,22 +529,38 @@ authRouter.post("/reset-password", async (req, res) => {
 });
 
 authRouter.get("/me", async (req, res) => {
-  const header = String(req.headers.authorization || "");
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!token) return res.status(401).json({ error: "Missing token" });
+  const user = await requireAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  return res.json(authUserPayload(user));
+});
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { email?: string };
-    const email = String(decoded.email || "").toLowerCase();
-    if (!email) return res.status(401).json({ error: "Invalid token" });
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    return res.json({
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
+/**
+ * Dev / fallback when Stripe is not configured. Production apps should use POST /billing/checkout-session.
+ */
+authRouter.post("/subscribe", async (req, res) => {
+  const user = await requireAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  if (stripeConfigured()) {
+    return res.status(400).json({
+      error: "Use POST /billing/checkout-session for Stripe subscription",
+      code: "use_stripe_checkout",
     });
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
   }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { isSubscribed: true, subscriptionSince: new Date() },
+  });
+  return res.json({ user: authUserPayload(updated) });
+});
+
+authRouter.post("/unsubscribe", async (req, res) => {
+  const user = await requireAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { isSubscribed: false, subscriptionSince: null },
+  });
+  return res.json({ user: authUserPayload(updated) });
 });

@@ -31,6 +31,8 @@ import {
   scheduledNonInstantJoinAllowed,
   matchAppearsOnDiscoveryListBySchedule,
 } from "../../lib/matchSchedule.js";
+import { generateRecurringMatchesForParent } from "../../lib/generateRecurringMatches.js";
+import type { RecurrencePattern } from "../../lib/generateRecurringMatches.js";
 
 export const matchesRouter = Router();
 
@@ -206,6 +208,10 @@ matchesRouter.post("/", async (req, res) => {
     gamesPerSet: number;
     tiebreakRule: string;
     autoBalanceTeams: boolean;
+    isRecurring: boolean;
+    recurrencePattern: RecurrencePattern;
+    playerGroupMode: string;
+    fixedPlayers: string[];
   }>;
   if (!body.title || !body.timeLabel || !body.locationName) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -295,9 +301,52 @@ matchesRouter.post("/", async (req, res) => {
       gamesPerSet,
       tiebreakRule,
       autoBalanceTeams,
+      isRecurring: body.isRecurring === true,
+      recurrencePattern:
+        body.isRecurring === true && body.recurrencePattern
+          ? (body.recurrencePattern as object)
+          : undefined,
+      playerGroupMode: body.playerGroupMode || (body.isRecurring ? "open" : undefined),
+      fixedPlayers: Array.isArray(body.fixedPlayers) ? body.fixedPlayers : [],
+      recurringMatchId: body.isRecurring === true ? undefined : undefined,
     },
   });
+
+  if (body.isRecurring === true && body.recurrencePattern) {
+    await prisma.match.update({
+      where: { id: created.id },
+      data: { recurringMatchId: created.id },
+    });
+    const startDate =
+      String(body.date || "").trim() || created.date.toISOString().split("T")[0];
+    try {
+      await generateRecurringMatchesForParent(created.id, startDate);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[generate-recurring on create]", e);
+    }
+    const refreshed = await prisma.match.findUnique({ where: { id: created.id } });
+    return res.status(201).json(await withHostJson(refreshed || created));
+  }
+
   return res.status(201).json(await withHostJson(created));
+});
+
+matchesRouter.post("/:id/generate-recurring", async (req, res) => {
+  const startDate = String(req.body.startDate || "").trim();
+  if (!startDate) return res.status(400).json({ error: "startDate is required" });
+  const parent = await prisma.match.findUnique({ where: { id: req.params.id } });
+  if (!parent) return res.status(404).json({ error: "Match not found" });
+  if (!parent.isRecurring) {
+    return res.status(400).json({ error: "Match is not configured as recurring" });
+  }
+  try {
+    const result = await generateRecurringMatchesForParent(parent.id, startDate);
+    return res.json({ success: true, ...result });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to generate occurrences";
+    return res.status(400).json({ error: msg });
+  }
 });
 
 matchesRouter.get("/:id/recent-form", async (req, res) => {

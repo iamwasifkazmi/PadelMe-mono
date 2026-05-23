@@ -206,6 +206,13 @@ async function main() {
         ] as object[],
       },
     });
+    if (p.key === "alex") {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: "admin", isSubscribed: true, subscriptionSince: new Date(), idVerified: true },
+      });
+    }
+
     createdIds[p.key] = user.id;
 
     await prisma.playerStats.create({

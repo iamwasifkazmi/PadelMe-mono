@@ -13,6 +13,8 @@ import { ratingsRouter } from "./ratings/ratings.router.js";
 import { communityRouter } from "./community/community.router.js";
 import { maintenanceRouter } from "./maintenance/maintenance.router.js";
 import { venuesRouter } from "./venues/venues.router.js";
+import { adminRouter } from "./admin/admin.router.js";
+import { billingRouter } from "./billing/billing.router.js";
 
 export const apiRouter = Router();
 
@@ -30,3 +32,5 @@ apiRouter.use("/verification", verificationRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/community", communityRouter);
 apiRouter.use("/internal", maintenanceRouter);
+apiRouter.use("/admin", adminRouter);
+apiRouter.use("/billing", billingRouter);

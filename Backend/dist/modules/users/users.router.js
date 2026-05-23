@@ -163,7 +163,11 @@ usersRouter.patch("/me", async (req, res) => {
             fullName: payload.fullName ?? existing.fullName ?? undefined,
             bio: payload.bio ?? existing.bio ?? undefined,
             photoUrl: payload.photoUrl ?? existing.photoUrl ?? undefined,
-            photoVerified: payload.photoVerified ?? existing.photoVerified ?? undefined,
+            photoVerified: payload.photoVerified ??
+                (payload.photoUrl != null && String(payload.photoUrl).trim().length > 0
+                    ? true
+                    : existing.photoVerified) ??
+                undefined,
             gender: payload.gender ?? existing.gender ?? undefined,
             skillLevel: payload.skillLevel ?? existing.skillLevel ?? undefined,
             skillLabel: payload.skillLabel ?? existing.skillLabel ?? undefined,

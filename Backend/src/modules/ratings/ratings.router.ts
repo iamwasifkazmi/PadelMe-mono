@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { syncPlayerRatingSummary } from "../../lib/playerRatingSummary.js";
 
 export const ratingsRouter = Router();
 
@@ -84,9 +85,29 @@ ratingsRouter.post("/match", async (req, res) => {
     });
 
     await syncUserAverageRating(ratedCanonical);
+    await syncPlayerRatingSummary(ratedCanonical);
   }
 
   return res.json({ ok: true });
+});
+
+ratingsRouter.get("/summary/:email", async (req, res) => {
+  const email = String(req.params.email || "").trim();
+  if (!email) return res.status(400).json({ error: "email is required" });
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+  });
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const summary = await prisma.playerRatingSummary.findUnique({
+    where: { userEmail: user.email },
+  });
+  return res.json(
+    summary ?? {
+      userEmail: user.email,
+      averageRating: user.averageRating,
+      totalRatings: 0,
+    },
+  );
 });
 
 ratingsRouter.get("/match/:matchId", async (req, res) => {

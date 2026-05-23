@@ -61,6 +61,18 @@ const entries = Object.entries({
   OTP_EXPIRES_MINUTES: process.env.OTP_EXPIRES_MINUTES?.trim() || "10",
   APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID?.trim() || "com.mipadel",
   GOOGLE_OAUTH_CLIENT_IDS: defaultGoogleIds,
+  VENUE_SEARCH_COUNTRY: process.env.VENUE_SEARCH_COUNTRY?.trim() || "gb",
+  STALE_MATCH_CRON_SECRET: process.env.STALE_MATCH_CRON_SECRET?.trim(),
+  SUPABASE_URL: process.env.SUPABASE_URL?.trim(),
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET?.trim() || "verification",
+  ADMIN_EMAILS: process.env.ADMIN_EMAILS?.trim(),
+  LTA_PADEL_FINDER_ENABLED: process.env.LTA_PADEL_FINDER_ENABLED?.trim() || "1",
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY?.trim(),
+  STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID?.trim(),
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET?.trim(),
+  STRIPE_SUCCESS_URL: process.env.STRIPE_SUCCESS_URL?.trim(),
+  STRIPE_CANCEL_URL: process.env.STRIPE_CANCEL_URL?.trim(),
 });
 
 const lines = [];

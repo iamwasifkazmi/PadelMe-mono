@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { runWeeklyLeagueFixtureGeneration } from "../../lib/competitionLeague.js";
 import { runAllStaleMatchCleanups } from "../../lib/matchStaleCleanup.js";
 export const maintenanceRouter = Router();
 /**
@@ -24,5 +25,24 @@ maintenanceRouter.post("/cleanup-stale-matches", async (req, res) => {
         // eslint-disable-next-line no-console
         console.error("[cleanup-stale-matches]", e);
         return res.status(500).json({ error: "Cleanup failed" });
+    }
+});
+/** Cron: generate league fixtures for leagues whose weeklyDay is today. */
+maintenanceRouter.post("/generate-league-fixtures", async (req, res) => {
+    const configured = (process.env.STALE_MATCH_CRON_SECRET || "").trim();
+    const authRaw = req.headers.authorization;
+    const bearer = typeof authRaw === "string" && /^Bearer\s+(.+)/i.exec(authRaw)?.[1]?.trim();
+    const headerToken = bearer || String(req.headers["x-cron-secret"] || "").trim();
+    if (!configured || headerToken !== configured) {
+        return res.status(403).json({ error: "Forbidden" });
+    }
+    try {
+        const processed = await runWeeklyLeagueFixtureGeneration();
+        return res.json({ ok: true, processed });
+    }
+    catch (e) {
+        // eslint-disable-next-line no-console
+        console.error("[generate-league-fixtures]", e);
+        return res.status(500).json({ error: "Fixture generation failed" });
     }
 });

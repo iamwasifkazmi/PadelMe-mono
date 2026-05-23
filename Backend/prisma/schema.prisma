@@ -95,6 +95,13 @@ model User {
   profileComplete    Boolean   @default(false)
   photoVerified      Boolean   @default(false)
   idVerified         Boolean   @default(false)
+  /** `user` | `admin` — admin can review ID verifications */
+  role               String    @default("user")
+  /** Premium tournaments/leagues (Base44 is_subscribed) */
+  isSubscribed       Boolean   @default(false)
+  subscriptionSince  DateTime?
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
   averageRating      Float?
   matchHistory       Json?
   lastActiveAt       DateTime?
@@ -218,9 +225,21 @@ model Match {
   gamesPerSet       Int         @default(6)
   tiebreakRule      String      @default("tiebreak_at_6")
   autoBalanceTeams   Boolean    @default(false)
+  /** Recurring series (Base44) */
+  isRecurring        Boolean     @default(false)
+  recurringMatchId   String?
+  parentMatchId      String?
+  occurrenceNumber   Int?
+  occurrenceDate     DateTime?
+  recurrencePattern  Json?
+  playerGroupMode    String?     @default("open")
+  fixedPlayers       String[]    @default([])
   host              User?       @relation("MatchHost", fields: [hostId], references: [id])
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
+
+  @@index([parentMatchId])
+  @@index([recurringMatchId])
 }
 
 model Competition {

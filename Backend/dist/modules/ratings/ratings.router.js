@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { syncPlayerRatingSummary } from "../../lib/playerRatingSummary.js";
 export const ratingsRouter = Router();
 async function syncUserAverageRating(ratedEmail) {
     const agg = await prisma.rating.aggregate({
@@ -54,27 +55,44 @@ ratingsRouter.post("/match", async (req, res) => {
             where: { matchId, raterEmail: raterCanonical, ratedEmail: ratedCanonical },
         });
         if (existing) {
-            await prisma.rating.update({
-                where: { id: existing.id },
-                data: { overall, comment: row.comment?.trim() || null },
+            return res.status(409).json({
+                error: "You have already rated this player for this match",
+                ratedEmail: ratedCanonical,
             });
         }
-        else {
-            await prisma.rating.create({
-                data: {
-                    matchId,
-                    raterEmail: raterCanonical,
-                    ratedEmail: ratedCanonical,
-                    raterId: rater.id,
-                    ratedId: rated?.id ?? undefined,
-                    overall,
-                    comment: row.comment?.trim() || undefined,
-                },
-            });
-        }
+        await prisma.rating.create({
+            data: {
+                matchId,
+                raterEmail: raterCanonical,
+                ratedEmail: ratedCanonical,
+                raterId: rater.id,
+                ratedId: rated?.id ?? undefined,
+                overall,
+                comment: row.comment?.trim() || undefined,
+            },
+        });
         await syncUserAverageRating(ratedCanonical);
+        await syncPlayerRatingSummary(ratedCanonical);
     }
     return res.json({ ok: true });
+});
+ratingsRouter.get("/summary/:email", async (req, res) => {
+    const email = String(req.params.email || "").trim();
+    if (!email)
+        return res.status(400).json({ error: "email is required" });
+    const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+    });
+    if (!user)
+        return res.status(404).json({ error: "User not found" });
+    const summary = await prisma.playerRatingSummary.findUnique({
+        where: { userEmail: user.email },
+    });
+    return res.json(summary ?? {
+        userEmail: user.email,
+        averageRating: user.averageRating,
+        totalRatings: 0,
+    });
 });
 ratingsRouter.get("/match/:matchId", async (req, res) => {
     const raterEmail = String(req.query.raterEmail || "").trim().toLowerCase();
