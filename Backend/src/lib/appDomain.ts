@@ -1,5 +1,9 @@
-/** Canonical public site (Stripe returns, User-Agent, invite links). */
+/** Marketing site (Stripe return URLs, branding). */
 export const DEFAULT_APP_ORIGIN = "https://mipadel.co.uk";
+
+/** Cloud Run URL — API + invite links until mipadel.co.uk DNS is live. */
+export const DEFAULT_PUBLIC_API_ORIGIN =
+  "https://padelme-backend-781275999853.europe-west2.run.app";
 
 export function appPublicOrigin(): string {
   const fromEnv =
@@ -8,8 +12,31 @@ export function appPublicOrigin(): string {
   return DEFAULT_APP_ORIGIN;
 }
 
+/** Origin for `/api` and `https://…/invite/:token` share links. */
+export function publicApiOrigin(): string {
+  const fromEnv = process.env.PUBLIC_API_ORIGIN?.trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return DEFAULT_PUBLIC_API_ORIGIN;
+}
+
+export function buildInviteWebUrl(token: string): string {
+  return `${publicApiOrigin()}/invite/${encodeURIComponent(token)}`;
+}
+
+export function inviteLinkHostnames(): string[] {
+  const hosts = new Set<string>();
+  for (const origin of [publicApiOrigin(), appPublicOrigin()]) {
+    try {
+      hosts.add(new URL(origin).hostname);
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...hosts];
+}
+
 export function appUserAgent(purpose: string): string {
-  return `MiPadel/1.0 (+${appPublicOrigin()}; ${purpose}; contact@mipadel.co.uk)`;
+  return `MiPadel/1.0 (+${publicApiOrigin()}; ${purpose}; contact@mipadel.co.uk)`;
 }
 
 export const INVITE_EMAIL_DOMAIN = "invite.mipadel.co.uk";

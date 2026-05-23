@@ -73,6 +73,9 @@ const entries = Object.entries({
   STRIPE_SUCCESS_URL: process.env.STRIPE_SUCCESS_URL?.trim(),
   STRIPE_CANCEL_URL: process.env.STRIPE_CANCEL_URL?.trim(),
   APP_PUBLIC_URL: process.env.APP_PUBLIC_URL?.trim() || "https://mipadel.co.uk",
+  PUBLIC_API_ORIGIN:
+    process.env.PUBLIC_API_ORIGIN?.trim() ||
+    "https://padelme-backend-781275999853.europe-west2.run.app",
 });
 
 const lines = [];

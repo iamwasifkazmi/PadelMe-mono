@@ -7,6 +7,7 @@ import morgan from "morgan";
 import { Prisma } from "@prisma/client";
 import { apiRouter } from "./modules/index.js";
 import { handleStripeWebhook } from "./modules/billing/billing.router.js";
+import { invitePublicRouter } from "./routes/invitePublic.js";
 
 dotenv.config();
 
@@ -29,6 +30,9 @@ app.use(morgan("dev"));
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+/** Invite landing pages + universal-link files (no /api prefix). */
+app.use(invitePublicRouter);
 
 app.use("/api", apiRouter);
 

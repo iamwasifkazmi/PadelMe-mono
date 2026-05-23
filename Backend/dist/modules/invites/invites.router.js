@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { MatchStatus } from "@prisma/client";
-import { INVITE_EMAIL_DOMAIN } from "../../lib/appDomain.js";
+import { INVITE_EMAIL_DOMAIN, buildInviteWebUrl } from "../../lib/appDomain.js";
 import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
 import { notifyHostCompetitionInviteAccepted, notifyHostPlayerJoinedMatch, notifyUser, } from "../../lib/matchNotifications.js";
@@ -54,7 +54,8 @@ async function notifyReceiverForInvite(opts) {
     const sender = opts.senderEmail.trim();
     const eventTitle = summary.title || "an event";
     const title = summary.kind === "competition" ? "Competition invite" : "Match invite";
-    const body = `${sender} invited you to ${eventTitle}`;
+    const link = buildInviteWebUrl(opts.inviteToken);
+    const body = `${sender} invited you to ${eventTitle}. Open: ${link}`;
     if (summary.kind === "match") {
         await notifyUser({
             userEmail,
@@ -118,6 +119,7 @@ invitesRouter.post("/create", async (req, res) => {
         senderEmail,
         eventId,
         inviteId: created.id,
+        inviteToken: created.token,
     });
     return res.status(201).json(created);
 });
@@ -144,8 +146,21 @@ invitesRouter.post("/bulk-create", async (req, res) => {
         senderEmail,
         eventId,
         inviteId: inv.id,
+        inviteToken: inv.token,
     })));
     return res.status(201).json(created);
+});
+invitesRouter.get("/record/:inviteId", async (req, res) => {
+    const invite = await prisma.invite.findUnique({ where: { id: req.params.inviteId } });
+    if (!invite)
+        return res.status(404).json({ error: "Invite not found" });
+    const eventSummary = await eventSummaryForEventId(invite.eventId);
+    return res.json({
+        token: invite.token,
+        status: invite.status,
+        eventSummary,
+        webUrl: buildInviteWebUrl(invite.token),
+    });
 });
 invitesRouter.get("/by-token/:token", async (req, res) => {
     const invite = await prisma.invite.findUnique({ where: { token: req.params.token } });

@@ -1,13 +1,16 @@
 # Domain: mipadel.co.uk
 
-Production uses **`https://mipadel.co.uk`** as the public site and API base:
+Until DNS is configured, production uses **Cloud Run** for API and invite links:
 
-| Use | URL |
-|-----|-----|
-| Website / Stripe returns | `https://mipadel.co.uk` |
-| REST API | `https://mipadel.co.uk/api` |
-| Stripe webhook | `https://mipadel.co.uk/api/billing/webhook` |
-| Health check | `https://mipadel.co.uk/health` |
+| Use | URL (current) |
+|-----|----------------|
+| REST API | `https://padelme-backend-781275999853.europe-west2.run.app/api` |
+| Invite link (share) | `https://padelme-backend-781275999853.europe-west2.run.app/invite/:token` |
+| Invite landing (browser) | Same — opens **Open in MiPadel** → `mipadel://invite/:token` |
+| Stripe webhook | `…/api/billing/webhook` |
+| Marketing / Stripe returns | `https://mipadel.co.uk` (`APP_PUBLIC_URL`) |
+
+After DNS maps `mipadel.co.uk` → Cloud Run, set `PUBLIC_API_ORIGIN` and app `PRODUCTION_ORIGIN` to `https://mipadel.co.uk`.
 
 ## GCP: map custom domain to Cloud Run
 
