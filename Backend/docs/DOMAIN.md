@@ -12,14 +12,22 @@ Until DNS is configured, production uses **Cloud Run** for API and invite links:
 
 After DNS maps `mipadel.co.uk` → Cloud Run, set `PUBLIC_API_ORIGIN` and app `PRODUCTION_ORIGIN` to `https://mipadel.co.uk`.
 
-## GCP: map custom domain to Cloud Run
+## GCP: custom domain (`europe-west2`)
 
-1. [Cloud Run](https://console.cloud.google.com/run) → `padelme-backend` → **Manage custom domains**.
-2. Add **`mipadel.co.uk`** (and `www` if needed).
-3. Add the DNS records your registrar shows (usually CNAME/A at your domain host).
-4. Wait for certificate provisioning (HTTPS).
+**Domain mappings are not available in `europe-west2`** (Console shows: use Load Balancer or Firebase Hosting).
 
-Until DNS is live, the app can temporarily use the Cloud Run URL via `EXPO_PUBLIC_API_URL` in the React Native app.
+For **`api.mipadel.co.uk`** → use the **Application Load Balancer** script:
+
+```bash
+gcloud auth login
+cd Backend && ./scripts/setup-api-load-balancer.sh
+```
+
+Full steps: [LOAD_BALANCER_DOMAIN.md](./LOAD_BALANCER_DOMAIN.md)
+
+Then set `PUBLIC_API_ORIGIN=https://api.mipadel.co.uk` and add DNS **A** record `api` → static IP from the script.
+
+Until DNS is live, the app can use the Cloud Run URL via `EXPO_PUBLIC_API_URL`.
 
 ## Env
 
