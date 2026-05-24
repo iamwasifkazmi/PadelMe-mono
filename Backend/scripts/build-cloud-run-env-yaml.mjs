@@ -75,7 +75,7 @@ const entries = Object.entries({
   APP_PUBLIC_URL: process.env.APP_PUBLIC_URL?.trim() || "https://mipadel.co.uk",
   PUBLIC_API_ORIGIN:
     process.env.PUBLIC_API_ORIGIN?.trim() ||
-    "https://padelme-backend-781275999853.europe-west2.run.app",
+    "https://api.mipadel.co.uk",
   FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID?.trim() || "mipadel-7463c",
 });
 

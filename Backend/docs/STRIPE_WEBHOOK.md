@@ -38,7 +38,7 @@ MiPadel uses **Stripe Checkout** for Premium subscriptions. After payment, Strip
    Example:
 
    ```
-   https://mipadel.co.uk/api/billing/webhook
+   https://api.mipadel.co.uk/api/billing/webhook
    ```
 
 4. **Events to send** — select at least:
