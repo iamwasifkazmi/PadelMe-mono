@@ -1,6 +1,11 @@
 import admin from "firebase-admin";
 import { prisma } from "./prisma.js";
 let firebaseReady = false;
+function firebaseProjectId() {
+    return (process.env.FIREBASE_PROJECT_ID?.trim() ||
+        process.env.GOOGLE_CLOUD_PROJECT?.trim() ||
+        "mipadel-7463c");
+}
 function initFirebaseAdmin() {
     if (firebaseReady)
         return true;
@@ -8,17 +13,33 @@ function initFirebaseAdmin() {
         firebaseReady = true;
         return true;
     }
+    const projectId = firebaseProjectId();
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-    if (!raw)
-        return false;
+    if (raw) {
+        try {
+            const cred = JSON.parse(raw);
+            admin.initializeApp({ credential: admin.credential.cert(cred), projectId });
+            firebaseReady = true;
+            return true;
+        }
+        catch (err) {
+            console.error("[push] Firebase init from JSON failed:", err);
+            return false;
+        }
+    }
+    // Cloud Run / GCP: no JSON key — use the runtime service account (ADC).
+    // Grant that SA "Firebase Cloud Messaging Admin" on project mipadel-7463c (see PUSH_NOTIFICATIONS.md).
     try {
-        const cred = JSON.parse(raw);
-        admin.initializeApp({ credential: admin.credential.cert(cred) });
+        admin.initializeApp({
+            credential: admin.credential.applicationDefault(),
+            projectId,
+        });
         firebaseReady = true;
+        console.info("[push] Firebase Admin using Application Default Credentials, project:", projectId);
         return true;
     }
     catch (err) {
-        console.error("[push] Firebase init failed:", err);
+        console.warn("[push] Firebase not configured (set FIREBASE_SERVICE_ACCOUNT_JSON or run on Cloud Run with FCM IAM):", err);
         return false;
     }
 }

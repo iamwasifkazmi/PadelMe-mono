@@ -1,7 +1,7 @@
 /** Marketing site (Stripe return URLs, branding). */
 export const DEFAULT_APP_ORIGIN = "https://mipadel.co.uk";
-/** Cloud Run URL — API + invite links until mipadel.co.uk DNS is live. */
-export const DEFAULT_PUBLIC_API_ORIGIN = "https://padelme-backend-781275999853.europe-west2.run.app";
+/** API + invite share links (Application LB → Cloud Run). */
+export const DEFAULT_PUBLIC_API_ORIGIN = "https://api.mipadel.co.uk";
 export function appPublicOrigin() {
     const fromEnv = process.env.APP_PUBLIC_URL?.trim() || process.env.STRIPE_RETURN_BASE_URL?.trim();
     if (fromEnv)

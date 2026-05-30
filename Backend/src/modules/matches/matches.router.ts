@@ -31,6 +31,7 @@ import {
   scheduledNonInstantJoinAllowed,
   matchAppearsOnDiscoveryListBySchedule,
 } from "../../lib/matchSchedule.js";
+import { maybeRunStaleMatchCleanup } from "../../lib/maybeRunStaleMatchCleanup.js";
 import { generateRecurringMatchesForParent } from "../../lib/generateRecurringMatches.js";
 import type { RecurrencePattern } from "../../lib/generateRecurringMatches.js";
 
@@ -132,6 +133,7 @@ async function withHostJson(match: Parameters<typeof getHostEmail>[0] & { id: st
 }
 
 matchesRouter.get("/", async (req, res) => {
+  maybeRunStaleMatchCleanup();
   const status = req.query.status as MatchStatus | undefined;
   const skill = String(req.query.skill || "").trim().toLowerCase();
   const where = {
@@ -160,6 +162,7 @@ matchesRouter.get("/", async (req, res) => {
       timeLabel: m.timeLabel,
       isInstant: m.isInstant,
       status: m.status,
+      durationMinutes: m.durationMinutes,
     }),
   );
   if (status === MatchStatus.open) {

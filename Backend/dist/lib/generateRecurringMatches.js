@@ -91,7 +91,13 @@ export async function generateRecurringMatchesForParent(parentMatchId, startDate
     let currentDate = new Date(startDate);
     let count = 0;
     const maxOccurrences = 52;
+    let iterations = 0;
+    const maxIterations = 366; // hard stop to avoid infinite loops
     while (count < maxOccurrences) {
+        iterations++;
+        if (iterations > maxIterations) {
+            throw new Error("Recurrence generation exceeded safe iteration limit (check days/frequency)");
+        }
         if (pattern.end_rule === "on_date" && pattern.end_date) {
             const end = new Date(pattern.end_date);
             if (currentDate > end)
@@ -101,12 +107,23 @@ export async function generateRecurringMatchesForParent(parentMatchId, startDate
             if (count >= pattern.end_count)
                 break;
         }
-        if ((pattern.frequency === "weekly" || pattern.frequency === "biweekly") &&
-            pattern.days?.length) {
+        const hasDays = (pattern.frequency === "weekly" || pattern.frequency === "biweekly") &&
+            Array.isArray(pattern.days) &&
+            pattern.days.length > 0;
+        if (hasDays) {
             const dayName = DAY_NAMES[currentDate.getDay()];
             if (!pattern.days.includes(dayName)) {
-                advanceDate(currentDate, pattern.frequency);
+                currentDate.setDate(currentDate.getDate() + 1);
                 continue;
+            }
+            if (pattern.frequency === "biweekly") {
+                const diffMs = currentDate.getTime() - startDate.getTime();
+                const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+                const weekIndex = Math.floor(Math.max(0, diffDays) / 7);
+                if (weekIndex % 2 !== 0) {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                    continue;
+                }
             }
         }
         const players = parent.playerGroupMode === "fixed" && fixedPlayers.length
@@ -135,7 +152,13 @@ export async function generateRecurringMatchesForParent(parentMatchId, startDate
             occurrenceIds.push(created.id);
         }
         count++;
-        advanceDate(currentDate, pattern.frequency);
+        if (hasDays) {
+            // When specific weekdays are provided (Base44 style), walk day-by-day to find the next matching slot.
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        else {
+            advanceDate(currentDate, pattern.frequency);
+        }
         if (pattern.end_rule === "never" && count >= maxOccurrences)
             break;
     }

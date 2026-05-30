@@ -1,9 +1,8 @@
 import { MatchStatus } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { dedupeEmailsCi } from "./emailsCi.js";
-import { matchScheduledStartUtcMs, scheduledNonInstantSlotIsExpired } from "./matchSchedule.js";
+import { fullRosterStartWindowExpired, matchPlayWindowHasEnded, scheduledNonInstantSlotIsExpired, } from "./matchSchedule.js";
 import { notifyMatchEmails } from "./matchNotifications.js";
-const MS_24H = 24 * 60 * 60 * 1000;
 /**
  * Cancels scheduled (non-instant) **open** matches whose slot start is in the past.
  * Full rosters are not auto-cancelled so the group can still start the match.
@@ -82,11 +81,13 @@ export async function cancelFullScheduledMatchesNeverStarted(nowMs = Date.now())
     });
     const matchIds = [];
     for (const m of candidates) {
-        const start = matchScheduledStartUtcMs({ date: m.date, timeLabel: m.timeLabel ?? "" });
-        if (Number.isNaN(start))
+        if (!fullRosterStartWindowExpired({
+            date: m.date,
+            timeLabel: m.timeLabel ?? "",
+            isInstant: false,
+        }, nowMs)) {
             continue;
-        if (start + MS_24H >= nowMs)
-            continue;
+        }
         await prisma.match.update({
             where: { id: m.id },
             data: {
@@ -110,16 +111,71 @@ export async function cancelFullScheduledMatchesNeverStarted(nowMs = Date.now())
     }
     return { cancelled: matchIds.length, matchIds };
 }
-/** Runs both stale open-slot cleanup and full-roster no-start cleanup. */
+/**
+ * Cancels instant **open** / **full** matches after their play window (start + duration) has ended.
+ */
+export async function cancelStaleInstantMatches(nowMs = Date.now()) {
+    const candidates = await prisma.match.findMany({
+        where: {
+            isInstant: true,
+            status: { in: [MatchStatus.open, MatchStatus.full] },
+        },
+        select: {
+            id: true,
+            title: true,
+            date: true,
+            timeLabel: true,
+            durationMinutes: true,
+            players: true,
+        },
+        orderBy: { createdAt: "asc" },
+        take: 5000,
+    });
+    const matchIds = [];
+    for (const m of candidates) {
+        const slot = {
+            date: m.date,
+            timeLabel: m.timeLabel ?? "",
+            durationMinutes: m.durationMinutes,
+        };
+        if (!matchPlayWindowHasEnded(slot, nowMs))
+            continue;
+        await prisma.match.update({
+            where: { id: m.id },
+            data: {
+                status: MatchStatus.cancelled,
+                cancelledBy: "system:instant-window-ended",
+                cancelledAt: new Date(nowMs),
+            },
+        });
+        matchIds.push(m.id);
+        const roster = dedupeEmailsCi(m.players);
+        await notifyMatchEmails(roster, {
+            type: "match_cancelled",
+            title: "Match cancelled",
+            body: `"${m.title.trim()}" was cancelled automatically—the instant play window has ended.`,
+            matchId: m.id,
+        });
+    }
+    if (matchIds.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[stale-match-cleanup] cancelled ${matchIds.length} instant match(es)`);
+    }
+    return { cancelled: matchIds.length, matchIds };
+}
+/** Runs all stale match cleanups (open past slot, full no-start, instant window). */
 export async function runAllStaleMatchCleanups(nowMs = Date.now()) {
     const openPast = await cancelStalePastScheduledMatches(nowMs);
     const fullNoStart = await cancelFullScheduledMatchesNeverStarted(nowMs);
+    const instantPast = await cancelStaleInstantMatches(nowMs);
     return {
         cancelledOpenPastSlot: openPast.cancelled,
         matchIdsOpenPastSlot: openPast.matchIds,
         cancelledFullNoStart24h: fullNoStart.cancelled,
         matchIdsFullNoStart24h: fullNoStart.matchIds,
-        cancelled: openPast.cancelled + fullNoStart.cancelled,
-        matchIds: [...openPast.matchIds, ...fullNoStart.matchIds],
+        cancelledInstantWindow: instantPast.cancelled,
+        matchIdsInstantWindow: instantPast.matchIds,
+        cancelled: openPast.cancelled + fullNoStart.cancelled + instantPast.cancelled,
+        matchIds: [...openPast.matchIds, ...fullNoStart.matchIds, ...instantPast.matchIds],
     };
 }

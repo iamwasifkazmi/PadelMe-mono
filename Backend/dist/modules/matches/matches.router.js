@@ -12,6 +12,7 @@ import { dedupeEmailsCi, emailsEqual, playersIncludesCi } from "../../lib/emails
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 import { syncMatchConversationInbox } from "../../lib/matchConversationInbox.js";
 import { scheduledStartUtcMs, scheduledNonInstantJoinAllowed, matchAppearsOnDiscoveryListBySchedule, } from "../../lib/matchSchedule.js";
+import { maybeRunStaleMatchCleanup } from "../../lib/maybeRunStaleMatchCleanup.js";
 import { generateRecurringMatchesForParent } from "../../lib/generateRecurringMatches.js";
 export const matchesRouter = Router();
 async function getHostEmail(match) {
@@ -108,6 +109,7 @@ async function withHostJson(match) {
     return { ...match, hostEmail };
 }
 matchesRouter.get("/", async (req, res) => {
+    maybeRunStaleMatchCleanup();
     const status = req.query.status;
     const skill = String(req.query.skill || "").trim().toLowerCase();
     const where = {
@@ -135,6 +137,7 @@ matchesRouter.get("/", async (req, res) => {
         timeLabel: m.timeLabel,
         isInstant: m.isInstant,
         status: m.status,
+        durationMinutes: m.durationMinutes,
     }));
     if (status === MatchStatus.open) {
         list = list.filter((m) => matchIsDiscoverableJoinable({

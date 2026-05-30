@@ -4,12 +4,27 @@ import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
 export const instantPlayRouter = Router();
+const MAX_INSTANT_DISTANCE_KM = 30;
 async function canonicalUserEmail(raw) {
     const trimmed = raw.trim();
     const u = await prisma.user.findFirst({
         where: { email: { equals: trimmed, mode: "insensitive" } },
     });
     return (u?.email ?? trimmed).trim();
+}
+function isFiniteNumber(n) {
+    return typeof n === "number" && Number.isFinite(n);
+}
+function haversineKm(aLat, aLng, bLat, bLng) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(bLat - aLat);
+    const dLng = toRad(bLng - aLng);
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLng / 2);
+    const aa = s1 * s1 +
+        Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * s2 * s2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(aa)));
 }
 function coerceMatchType(raw) {
     const s = String(raw ?? "").toLowerCase();
@@ -24,6 +39,11 @@ instantPlayRouter.post("/join", async (req, res) => {
     const matchType = coerceMatchType(matchTypeRaw);
     if (!userEmail)
         return res.status(400).json({ error: "userEmail is required" });
+    if (!isFiniteNumber(locationLat) || !isFiniteNumber(locationLng)) {
+        return res
+            .status(400)
+            .json({ error: "Choose a playing area so we have exact coordinates." });
+    }
     const canonical = await canonicalUserEmail(userEmail);
     const openInstantCandidates = await prisma.match.findMany({
         where: {
@@ -34,11 +54,19 @@ instantPlayRouter.post("/join", async (req, res) => {
         orderBy: { createdAt: "asc" },
         take: 25,
     });
-    const openInstant = openInstantCandidates.find((m) => matchIsDiscoverableJoinable({
-        players: m.players,
-        confirmedPlayerEmails: m.confirmedPlayerEmails,
-        maxPlayers: m.maxPlayers,
-    })) ?? null;
+    const openInstant = openInstantCandidates.find((m) => {
+        if (!matchIsDiscoverableJoinable({
+            players: m.players,
+            confirmedPlayerEmails: m.confirmedPlayerEmails,
+            maxPlayers: m.maxPlayers,
+        })) {
+            return false;
+        }
+        if (!isFiniteNumber(m.locationLat) || !isFiniteNumber(m.locationLng))
+            return false;
+        const km = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
+        return km <= MAX_INSTANT_DISTANCE_KM;
+    }) ?? null;
     if (openInstant && !playersIncludesCi(openInstant.players, canonical)) {
         const players = dedupeEmailsCi([...openInstant.players, canonical]);
         const updated = await prisma.match.update({
@@ -56,8 +84,8 @@ instantPlayRouter.post("/join", async (req, res) => {
             userName,
             skillLevel,
             locationName,
-            locationLat: locationLat ?? null,
-            locationLng: locationLng ?? null,
+            locationLat,
+            locationLng,
             matchType,
             status: "waiting",
             expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -66,37 +94,52 @@ instantPlayRouter.post("/join", async (req, res) => {
     const waiting = await prisma.instantPlayRequest.findMany({
         where: { status: "waiting", matchType },
         orderBy: { createdAt: "asc" },
-        take: 4,
+        take: 25,
     });
     const needed = (matchType === MatchType.singles ? 2 : 4);
     if (waiting.length >= needed) {
-        const selected = waiting.slice(0, needed);
-        const emails = dedupeEmailsCi(selected.map((r) => r.userEmail));
-        const anchor = selected[0];
-        const resolvedName = anchor?.locationName || locationName || "Nearby Court";
-        const resolvedLat = anchor?.locationLat ?? locationLat ?? null;
-        const resolvedLng = anchor?.locationLng ?? locationLng ?? null;
-        const createdMatch = await prisma.match.create({
-            data: {
-                title: "⚡ Instant Padel",
-                date: new Date(),
-                timeLabel: new Date().toTimeString().slice(0, 5),
-                locationName: resolvedName,
-                locationLat: resolvedLat,
-                locationLng: resolvedLng,
-                skillLevel,
-                maxPlayers: needed,
-                players: emails,
-                status: MatchStatus.open,
-                isInstant: true,
-                matchType,
-            },
+        const anchor = waiting[0];
+        const anchorLat = anchor?.locationLat;
+        const anchorLng = anchor?.locationLng;
+        const nearAnchor = waiting.filter((r) => {
+            if (!isFiniteNumber(r.locationLat) || !isFiniteNumber(r.locationLng))
+                return false;
+            if (!isFiniteNumber(anchorLat) || !isFiniteNumber(anchorLng))
+                return false;
+            return haversineKm(anchorLat, anchorLng, r.locationLat, r.locationLng) <= MAX_INSTANT_DISTANCE_KM;
         });
-        await prisma.instantPlayRequest.updateMany({
-            where: { id: { in: selected.map((r) => r.id) } },
-            data: { status: "matched", matchedMatchId: createdMatch.id },
-        });
-        return res.json({ status: "matched", matchId: createdMatch.id, requestId: requestRow.id });
+        const selected = nearAnchor.slice(0, needed);
+        if (selected.length < needed) {
+            // Not enough players nearby yet.
+            // Continue to nearby matches list.
+        }
+        else {
+            const emails = dedupeEmailsCi(selected.map((r) => r.userEmail));
+            const resolvedName = anchor?.locationName || locationName || "Nearby Court";
+            const resolvedLat = anchor?.locationLat ?? locationLat;
+            const resolvedLng = anchor?.locationLng ?? locationLng;
+            const createdMatch = await prisma.match.create({
+                data: {
+                    title: "⚡ Instant Padel",
+                    date: new Date(),
+                    timeLabel: new Date().toTimeString().slice(0, 5),
+                    locationName: resolvedName,
+                    locationLat: resolvedLat,
+                    locationLng: resolvedLng,
+                    skillLevel,
+                    maxPlayers: needed,
+                    players: emails,
+                    status: MatchStatus.open,
+                    isInstant: true,
+                    matchType,
+                },
+            });
+            await prisma.instantPlayRequest.updateMany({
+                where: { id: { in: selected.map((r) => r.id) } },
+                data: { status: "matched", matchedMatchId: createdMatch.id },
+            });
+            return res.json({ status: "matched", matchId: createdMatch.id, requestId: requestRow.id });
+        }
     }
     const nearbyMatchesRaw = await prisma.match.findMany({
         where: {
@@ -109,11 +152,19 @@ instantPlayRouter.post("/join", async (req, res) => {
         take: 24,
     });
     const nearbyMatches = nearbyMatchesRaw
-        .filter((m) => matchIsDiscoverableJoinable({
-        players: m.players,
-        confirmedPlayerEmails: m.confirmedPlayerEmails,
-        maxPlayers: m.maxPlayers,
-    }))
+        .filter((m) => {
+        if (!matchIsDiscoverableJoinable({
+            players: m.players,
+            confirmedPlayerEmails: m.confirmedPlayerEmails,
+            maxPlayers: m.maxPlayers,
+        })) {
+            return false;
+        }
+        if (!isFiniteNumber(m.locationLat) || !isFiniteNumber(m.locationLng))
+            return false;
+        const km = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
+        return km <= MAX_INSTANT_DISTANCE_KM;
+    })
         .slice(0, 8);
     const nearbySummary = nearbyMatches.map((m) => ({
         id: m.id,
