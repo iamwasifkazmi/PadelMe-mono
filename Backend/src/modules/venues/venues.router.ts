@@ -1,7 +1,29 @@
 import { Router } from "express";
-import { saveVenueFromMapPick, searchVenues } from "../../lib/venueSearch.js";
+import { resolveVenueCoordinates, saveVenueFromMapPick, searchVenues } from "../../lib/venueSearch.js";
 
 export const venuesRouter = Router();
+
+venuesRouter.post("/resolve-coordinates", async (req, res) => {
+  const body = req.body as {
+    name?: string;
+    address?: string;
+    city?: string;
+    postcode?: string;
+  };
+  try {
+    const coords = await resolveVenueCoordinates(body);
+    if (!coords) {
+      return res.status(404).json({
+        error: "Could not find map coordinates. Add a UK postcode or pick a map search result.",
+      });
+    }
+    return res.json(coords);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error("[venues/resolve-coordinates]", e);
+    return res.status(500).json({ error: "Geocoding failed" });
+  }
+});
 
 venuesRouter.get("/search", async (req, res) => {
   const q = String(req.query.q || "").trim();

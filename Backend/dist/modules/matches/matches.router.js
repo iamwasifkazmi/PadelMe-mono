@@ -150,14 +150,17 @@ matchesRouter.get("/", async (req, res) => {
 });
 matchesRouter.post("/", async (req, res) => {
     const body = req.body;
-    if (!body.title || !body.timeLabel || !body.locationName) {
+    if (!body.title || !body.timeLabel) {
         return res.status(400).json({ error: "Missing required fields" });
     }
-    const lat = body.locationLat;
-    const lng = body.locationLng;
-    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return res.status(400).json({ error: "locationLat and locationLng are required (exact venue coordinates)" });
-    }
+    const locationNameRaw = String(body.locationName || "").trim();
+    const locationName = locationNameRaw || (body.isInstant === true ? "TBD" : "TBD — to be confirmed");
+    let lat = typeof body.locationLat === "number" && Number.isFinite(body.locationLat)
+        ? body.locationLat
+        : undefined;
+    let lng = typeof body.locationLng === "number" && Number.isFinite(body.locationLng)
+        ? body.locationLng
+        : undefined;
     const isInstant = body.isInstant === true;
     if (!isInstant) {
         const dateStr = String(body.date || "").trim();
@@ -199,7 +202,7 @@ matchesRouter.post("/", async (req, res) => {
             title: body.title,
             date: parsedDate,
             timeLabel: body.timeLabel,
-            locationName: body.locationName,
+            locationName,
             locationAddress: body.locationAddress || undefined,
             locationLat: lat,
             locationLng: lng,

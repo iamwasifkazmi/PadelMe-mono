@@ -67,6 +67,7 @@ export async function searchInternalVenues(
       name: v.name,
       address: [v.address, v.city, v.postcode].filter(Boolean).join(", "),
       city: v.city,
+      postcode: v.postcode ?? undefined,
       lat: v.lat,
       lng: v.lng,
       source: "internal" as const,
@@ -100,6 +101,45 @@ async function nominatimSearch(query: string, limit = 8): Promise<NominatimHit[]
 async function geocodeCenter(query: string): Promise<{ lat: string; lon: string } | null> {
   const hits = await nominatimSearch(query, 1);
   return hits[0] ? { lat: hits[0].lat, lon: hits[0].lon } : null;
+}
+
+/** Resolve lat/lng for internal/manual venues using several UK-biased query variants. */
+export async function resolveVenueCoordinates(input: {
+  name?: string;
+  address?: string;
+  city?: string;
+  postcode?: string;
+}): Promise<{ lat: number; lng: number } | null> {
+  const trim = (s?: string) => (s || "").trim();
+  const name = trim(input.name);
+  const address = trim(input.address);
+  const city = trim(input.city);
+  const postcode = trim(input.postcode);
+  const country = "United Kingdom";
+
+  const variants: string[] = [];
+  const add = (q: string) => {
+    const t = q.trim();
+    if (t.length >= 3 && !variants.includes(t)) variants.push(t);
+  };
+
+  if (postcode) add(`${postcode}, ${country}`);
+  if (name && postcode) add(`${name}, ${postcode}, ${country}`);
+  if (name && city) add(`${name}, ${city}, ${country}`);
+  if (name && address) add(`${name}, ${address}, ${country}`);
+  if (address && city) add(`${address}, ${city}, ${country}`);
+  if (address) add(`${address}, ${country}`);
+  if (name) add(`${name}, ${country}`);
+  if (city) add(`${city}, ${country}`);
+
+  for (const q of variants) {
+    const hit = await geocodeCenter(q);
+    if (!hit) continue;
+    const lat = Number(hit.lat);
+    const lng = Number(hit.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+  return null;
 }
 
 /** Direct name/place search — finds clubs whose OSM listing matches "padel" + area text. */
