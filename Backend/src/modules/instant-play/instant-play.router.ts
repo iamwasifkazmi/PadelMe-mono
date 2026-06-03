@@ -2,11 +2,16 @@ import { Router } from "express";
 import { MatchStatus, MatchType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { dedupeEmailsCi, playersIncludesCi } from "../../lib/emailsCi.js";
+import { haversineKm } from "../../lib/geo.js";
 import { matchIsDiscoverableJoinable } from "../../lib/matchListing.js";
+import {
+  notifyInstantPlayMatched,
+  notifyInstantPlayPlayerJoined,
+  notifyNearbyInstantPlaySeekers,
+} from "../../lib/instantPlayNotifications.js";
+import { coerceTravelRadiusKm } from "../../lib/travelRadius.js";
 
 export const instantPlayRouter = Router();
-
-const MAX_INSTANT_DISTANCE_KM = 30;
 
 async function canonicalUserEmail(raw: string): Promise<string> {
   const trimmed = raw.trim();
@@ -20,17 +25,16 @@ function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
-function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(bLat - aLat);
-  const dLng = toRad(bLng - aLng);
-  const s1 = Math.sin(dLat / 2);
-  const s2 = Math.sin(dLng / 2);
-  const aa =
-    s1 * s1 +
-    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * s2 * s2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(aa)));
+function withinMutualRadiusKm(
+  aLat: number,
+  aLng: number,
+  aRadiusKm: number,
+  bLat: number,
+  bLng: number,
+  bRadiusKm: number,
+): boolean {
+  const dist = haversineKm(aLat, aLng, bLat, bLng);
+  return dist <= aRadiusKm && dist <= bRadiusKm;
 }
 
 function coerceMatchType(raw: unknown): MatchType {
@@ -49,6 +53,7 @@ instantPlayRouter.post("/join", async (req, res) => {
     locationLat,
     locationLng,
     skillLevel = "any",
+    maxDistanceKm: maxDistanceKmRaw,
   } = req.body as Partial<{
     userEmail: string;
     userName: string;
@@ -57,9 +62,11 @@ instantPlayRouter.post("/join", async (req, res) => {
     locationLat: number;
     locationLng: number;
     skillLevel: string;
+    maxDistanceKm: unknown;
   }>;
 
   const matchType = coerceMatchType(matchTypeRaw);
+  const maxDistanceKm = coerceTravelRadiusKm(maxDistanceKmRaw);
 
   if (!userEmail) return res.status(400).json({ error: "userEmail is required" });
   if (!isFiniteNumber(locationLat) || !isFiniteNumber(locationLng)) {
@@ -91,8 +98,8 @@ instantPlayRouter.post("/join", async (req, res) => {
         return false;
       }
       if (!isFiniteNumber(m.locationLat) || !isFiniteNumber(m.locationLng)) return false;
-      const km = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
-      return km <= MAX_INSTANT_DISTANCE_KM;
+      const dist = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
+      return dist <= maxDistanceKm;
     }) ?? null;
 
   if (openInstant && !playersIncludesCi(openInstant.players, canonical)) {
@@ -103,6 +110,12 @@ instantPlayRouter.post("/join", async (req, res) => {
         players,
         status: players.length >= openInstant.maxPlayers ? MatchStatus.full : MatchStatus.open,
       },
+    });
+    void notifyInstantPlayPlayerJoined({
+      rosterEmails: openInstant.players,
+      joinerEmail: canonical,
+      matchId: updated.id,
+      matchTitle: updated.title,
     });
     return res.json({ status: "matched", matchId: updated.id });
   }
@@ -115,6 +128,7 @@ instantPlayRouter.post("/join", async (req, res) => {
       locationName,
       locationLat,
       locationLng,
+      maxDistanceKm,
       matchType,
       status: "waiting",
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
@@ -132,10 +146,19 @@ instantPlayRouter.post("/join", async (req, res) => {
     const anchor = waiting[0];
     const anchorLat = anchor?.locationLat;
     const anchorLng = anchor?.locationLng;
+    const anchorRadius = coerceTravelRadiusKm(anchor?.maxDistanceKm);
     const nearAnchor = waiting.filter((r) => {
       if (!isFiniteNumber(r.locationLat) || !isFiniteNumber(r.locationLng)) return false;
       if (!isFiniteNumber(anchorLat) || !isFiniteNumber(anchorLng)) return false;
-      return haversineKm(anchorLat, anchorLng, r.locationLat, r.locationLng) <= MAX_INSTANT_DISTANCE_KM;
+      const rRadius = coerceTravelRadiusKm(r.maxDistanceKm);
+      return withinMutualRadiusKm(
+        anchorLat,
+        anchorLng,
+        anchorRadius,
+        r.locationLat,
+        r.locationLng,
+        rRadius,
+      );
     });
     const selected = nearAnchor.slice(0, needed);
     if (selected.length < needed) {
@@ -166,8 +189,33 @@ instantPlayRouter.post("/join", async (req, res) => {
       where: { id: { in: selected.map((r) => r.id) } },
       data: { status: "matched", matchedMatchId: createdMatch.id },
     });
+    void notifyInstantPlayMatched({
+      recipientEmails: emails,
+      matchId: createdMatch.id,
+      matchTitle: createdMatch.title,
+      locationName: resolvedName,
+    });
     return res.json({ status: "matched", matchId: createdMatch.id, requestId: requestRow.id });
     }
+  }
+
+  const notifiedEmails = await notifyNearbyInstantPlaySeekers({
+    seekerEmail: userEmail,
+    seekerName: userName || "",
+    locationLat,
+    locationLng,
+    maxDistanceKm,
+    matchType,
+    locationName: locationName || undefined,
+    alreadyNotified: requestRow.notifiedUsers,
+  });
+  if (notifiedEmails.length > 0) {
+    await prisma.instantPlayRequest.update({
+      where: { id: requestRow.id },
+      data: {
+        notifiedUsers: dedupeEmailsCi([...requestRow.notifiedUsers, ...notifiedEmails]),
+      },
+    });
   }
 
   const nearbyMatchesRaw = await prisma.match.findMany({
@@ -192,8 +240,8 @@ instantPlayRouter.post("/join", async (req, res) => {
         return false;
       }
       if (!isFiniteNumber(m.locationLat) || !isFiniteNumber(m.locationLng)) return false;
-      const km = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
-      return km <= MAX_INSTANT_DISTANCE_KM;
+      const dist = haversineKm(locationLat, locationLng, m.locationLat, m.locationLng);
+      return dist <= maxDistanceKm;
     })
     .slice(0, 8);
 
@@ -205,12 +253,14 @@ instantPlayRouter.post("/join", async (req, res) => {
     maxPlayers: m.maxPlayers,
     timeLabel: m.timeLabel,
     date: m.date,
+    distanceKm: Math.round(haversineKm(locationLat, locationLng, m.locationLat!, m.locationLng!)),
   }));
 
   return res.json({
     status: "waiting",
     requestId: requestRow.id,
     nearbyMatches: nearbySummary,
+    notifiedCount: notifiedEmails.length,
   });
 });
 
@@ -238,13 +288,21 @@ instantPlayRouter.post("/join-match", async (req, res) => {
   }
 
   const players = dedupeEmailsCi([...match.players, canonical]);
-  await prisma.match.update({
+  const updated = await prisma.match.update({
     where: { id: matchId },
     data: {
       players,
       status: players.length >= match.maxPlayers ? MatchStatus.full : MatchStatus.open,
     },
   });
+  if (match.isInstant) {
+    void notifyInstantPlayPlayerJoined({
+      rosterEmails: match.players,
+      joinerEmail: canonical,
+      matchId: updated.id,
+      matchTitle: updated.title,
+    });
+  }
   return res.json({ status: "matched", matchId });
 });
 

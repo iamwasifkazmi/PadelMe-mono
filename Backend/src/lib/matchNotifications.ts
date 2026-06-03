@@ -78,6 +78,7 @@ export async function notifyUser(opts: {
   /** e.g. `conversation` for DMs when `matchId` is null */
   relatedEntityType?: string | null;
   relatedEntityId?: string | null;
+  priority?: string | null;
 }) {
   try {
     const matchId = opts.matchId ?? null;
@@ -101,7 +102,7 @@ export async function notifyUser(opts: {
         matchId,
         relatedEntityType,
         relatedEntityId,
-        priority: "normal",
+        priority: opts.priority?.trim() || "normal",
       },
     });
     void sendPushForNotification(created);

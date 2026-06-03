@@ -77,7 +77,7 @@ export async function notifyUser(opts) {
                 matchId,
                 relatedEntityType,
                 relatedEntityId,
-                priority: "normal",
+                priority: opts.priority?.trim() || "normal",
             },
         });
         void sendPushForNotification(created);
